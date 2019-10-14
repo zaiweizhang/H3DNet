@@ -18,7 +18,7 @@ sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 
 from pointnet2_modules import PointnetSAModuleVotes, PointnetFPModule
 
-class Pointnet2BackbonePairwise(nn.Module):
+class Pointnet2BackboneDis(nn.Module):
     r"""
        Backbone network for point cloud feature learning.
        Based on Pointnet++ single-scale grouping network. 
@@ -109,7 +109,7 @@ class Pointnet2BackbonePairwise(nn.Module):
         if reuse:
             self.task = 'reuse'
         else:
-            self.task = 'sem'
+            self.task = 'dis'
                         
         xyz, features = self._break_up_pc(pointcloud)
         

@@ -38,7 +38,6 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from pytorch_utils import BNMomentumScheduler
 from tf_visualizer import Visualizer as TfVisualizer
 from ap_helper import APCalculator, parse_predictions, parse_groundtruths
-import pc_util
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
@@ -61,6 +60,7 @@ parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to deca
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
+parser.add_argument('--use_support', action='store_true', help='Use support relation in input.')
 parser.add_argument('--use_sunrgbd_v2', action='store_true', help='Use V2 box labels for SUN RGB-D dataset')
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
 parser.add_argument('--dump_results', action='store_true', help='Dump results.')
@@ -126,22 +126,13 @@ if FLAGS.dataset == 'sunrgbd':
         use_v1=(not FLAGS.use_sunrgbd_v2))
 elif FLAGS.dataset == 'scannet':
     sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
-    #from scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
-    from scannet_semantic_dataset import ScannetSemanticDataset, MAX_NUM_OBJ
+    from scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
     from model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
-    """
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
         augment=True,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
-        augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
-    """
-    TRAIN_DATASET = ScannetSemanticDataset('train', num_points=NUM_POINT,
-        augment=True,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
-    TEST_DATASET = ScannetSemanticDataset('val', num_points=NUM_POINT,
         augment=False,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
 else:
@@ -158,19 +149,11 @@ print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
 MODEL = importlib.import_module(FLAGS.model) # import network module
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1
-CLASS_MAP = {}
-counter = 0
-fc = open("scannet_classes.txt")
-for line in fc:
-    CLASS_MAP[counter] = line.strip("\n")
-    counter += 1
-"""
+
 if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet
 else:
     Detector = MODEL.VoteNet
-"""
-Detector = MODEL.VoteNet
 
 net = Detector(num_class=DATASET_CONFIG.num_class,
                num_heading_bin=DATASET_CONFIG.num_heading_bin,
@@ -244,37 +227,15 @@ def train_one_epoch():
 
         # Forward pass
         optimizer.zero_grad()
-        #inputs = {'point_clouds': torch.cat((batch_data_label['point_clouds'], batch_data_label['sem_cls_label'].float().unsqueeze(-1)),2)}
         inputs = {'point_clouds': batch_data_label['point_clouds']}
-        #import pdb;pdb.set_trace()
-        end_points = net(inputs)
+        end_points = {}
+        end_points['use_support'] = FLAGS.use_support
+        end_points = net(inputs, end_points)
         
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
-            if key == 'sem_cls_label':
-                end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[:-1]).long()
-                for i in range(len(end_points[key])):
-                    end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...].long()
-                end_points[key] = end_points[key].to(device)
-            if key == 'support_cls_label':
-                #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], (DATASET_CONFIG.num_class+1)*2)
-                end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], DATASET_CONFIG.num_class)
-                #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], 2)
-                #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], 1)
-                for i in range(len(end_points[key])):
-                    #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,43].unsqueeze(-1)
-                    end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,42:]
-                    #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,42:44]
-                    #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...]
-                    #pc_util.pc2obj(end_points['xyz'][0,:].cpu().numpy())
-                    #import pdb;pdb.set_trace()
-                    #pc_util.write_ply_color(end_points['point_clouds'][i,:].cpu().numpy(), batch_data_label['sem_cls_label'][i,:].cpu().numpy(), 'orig.ply', num_classes=DATASET_CONFIG.num_class+1)
-                    #pc_util.write_ply_color(end_points['xyz'][i,:].cpu().numpy(), end_points['sem_cls_label'][i,:].cpu().numpy(), 'sem.ply', num_classes=DATASET_CONFIG.num_class+1)
-                    #pc_util.write_ply_color(end_points['xyz'][i,:].cpu().numpy(), np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()), 'floor.ply', num_classes=2)
-                    #import pdb;pdb.set_trace()
-                end_points[key] = end_points[key].to(device)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
         optimizer.step()
@@ -296,91 +257,45 @@ def train_one_epoch():
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
-    #ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
-    #    class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
-    with torch.no_grad():
-        total_pred = 0
-        total_correct = 0
-        total_correct_sem = 0
-        total_sem = 0
-        correct_cls = {}
-        total_cls = {}
-        for i in CLASS_MAP:
-            correct_cls[i] = 0
-            total_cls[i] = 0
-        for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
-            if batch_idx % 10 == 0:
-                print('Eval batch: %d'%(batch_idx))
-            for key in batch_data_label:
-                batch_data_label[key] = batch_data_label[key].to(device)
-            # Forward pass
-            #inputs = {'point_clouds': torch.cat((batch_data_label['point_clouds'], batch_data_label['sem_cls_label'].float().unsqueeze(-1)),2)}
-            inputs = {'point_clouds': batch_data_label['point_clouds']}
-            end_points = net(inputs)
+    for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+        if batch_idx % 10 == 0:
+            print('Eval batch: %d'%(batch_idx))
+        for key in batch_data_label:
+            batch_data_label[key] = batch_data_label[key].to(device)
+        
+        # Forward pass
+        inputs = {'point_clouds': batch_data_label['point_clouds']}
+        with torch.no_grad():
+            end_points = {}
+            end_points['use_support'] = FLAGS.use_support
+            end_points = net(inputs, end_points)
 
-            # Compute loss
-            for key in batch_data_label:
-                assert(key not in end_points)
-                end_points[key] = batch_data_label[key]
-                if key == 'sem_cls_label':
-                    end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[:-1]).long()
-                    for i in range(len(end_points[key])):
-                        end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...].long()
-                        for cls in CLASS_MAP.keys():
-                            correct_cls[cls] += np.sum((np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sem_cls_label'][i,:].cpu().numpy())) & (np.squeeze(end_points['sem_cls_label'][i,:].cpu().numpy()) == cls))
-                            total_cls[cls] += np.sum(np.squeeze(end_points['sem_cls_label'][i,:].cpu().numpy()) == cls)
-                        total_correct_sem += np.sum(np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sem_cls_label'][i,:].cpu().numpy()))
-                        total_sem += len(np.squeeze(end_points['sem_cls_label'][i,:].cpu().numpy()))
-                if key == 'support_cls_label':
-                    #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], 1)
-                    #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], (DATASET_CONFIG.num_class+1)*2)
-                    end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], DATASET_CONFIG.num_class)
-                    #end_points[key] = torch.zeros(end_points['xyz'].cpu().numpy().shape[0], end_points['xyz'].cpu().numpy().shape[1], 2)
-                    for i in range(len(end_points[key])):
-                        #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,43].unsqueeze(-1)
-                        end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,42:]
-                        #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...][:,42:44]
-                        #end_points[key][i,:] = batch_data_label[key][i,:][end_points['inds'][i,:].long(),...]
-                        #pc_util.write_ply_color(end_points['xyz'][i,:].cpu().numpy(), end_points['sem_cls_label'][i,:].cpu().numpy(), 'gt_%d_%d.ply'%(batch_idx, i), num_classes=DATASET_CONFIG.num_class+1)
-                        #import pdb;pdb.set_trace()
-                        #pc_util.write_ply_color(end_points['xyz'][i,:].cpu().numpy(), np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()), LOG_DIR+'/gt_%d_%d.ply'%(batch_idx, i), num_classes=2)                        
-                        #pc_util.write_ply_color(end_points['xyz'][i,:].cpu().numpy(), np.squeeze(end_points['pred_support_class'][i,:].transpose(0,1).cpu().numpy() > 0.5), LOG_DIR+'/pred_%d_%d.ply'%(batch_idx, i), num_classes=2)
-                        #pre_dict = pc_util.write_ply_color_multi(end_points['xyz'][i,:].cpu().numpy(), np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()), LOG_DIR+'/gt_%d_%d.ply'%(batch_idx, i))                        
-                        #pc_util.write_ply_color_multi(end_points['xyz'][i,:].cpu().numpy(), np.squeeze(end_points['pred_support_class'][i,:].transpose(0,1).cpu().numpy() > 0.5), LOG_DIR+'/pred_%d_%d.ply'%(batch_idx, i), pre_dict=pre_dict)
-                        #total_correct += np.sum(np.squeeze(end_points['pred_support_class'][i,:].transpose(0,1).cpu().numpy() > 0.5) == np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()))
-                        #total_pred += len(np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()))
-                        total_correct += pc_util.get_correct(np.squeeze(end_points['pred_support_class'][i,:].transpose(0,1).cpu().numpy() > 0.5), np.squeeze(end_points['support_cls_label'][i,:].cpu().numpy()))
-                        total_pred += len(end_points['support_cls_label'][i,:].cpu().numpy())
-                end_points[key] = end_points[key].to(device)
-            loss, end_points = criterion(end_points, DATASET_CONFIG)
-            # Accumulate statistics and print out
-            for key in end_points:
-                if 'loss' in key or 'acc' in key or 'ratio' in key:
-                    if key not in stat_dict: stat_dict[key] = 0
-                    stat_dict[key] += end_points[key].item()
+        # Compute loss
+        for key in batch_data_label:
+            assert(key not in end_points)
+            end_points[key] = batch_data_label[key]
+        loss, end_points = criterion(end_points, DATASET_CONFIG)
 
-            """
-            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-            batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-            ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
-       
-            # Dump evaluation results for visualization
-            if FLAGS.dump_results and batch_idx == 0 and EPOCH_CNT %10 == 0:
+        # Accumulate statistics and print out
+        for key in end_points:
+            if 'loss' in key or 'acc' in key or 'ratio' in key:
+                if key not in stat_dict: stat_dict[key] = 0
+                stat_dict[key] += end_points[key].item()
+
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+
+        # Dump evaluation results for visualization
+        if FLAGS.dump_results and batch_idx == 0 and EPOCH_CNT %10 == 0:
             MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
-            """
-            #print (loss)
-        #print ("total_acc:", total_correct / float(total_pred))
-        log_string("total_acc: %f" % (total_correct / float(total_pred)))
-        #print ("total_sem_acc:", total_correct_sem / float(total_sem))
-        log_string("total_sem_acc: %f" % (total_correct_sem / float(total_sem)))
-        for cls in CLASS_MAP:
-            #print ("For %s:"%CLASS_MAP[cls], correct_cls[cls] / float(total_cls[cls]))
-            log_string("For %s: %f"%(CLASS_MAP[cls], correct_cls[cls] / float(total_cls[cls])))
+
     # Log statistics
-    #TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
-    #    (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
-    """"
+    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
+        (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
@@ -388,9 +303,8 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
-    """
+
     mean_loss = stat_dict['loss']/float(batch_idx+1)
-    print("mean loss:", mean_loss)
     return mean_loss
 
 

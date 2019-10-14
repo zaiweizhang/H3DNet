@@ -79,6 +79,7 @@ class ScannetSemanticDataset(Dataset):
         instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
         semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
         support_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_label.npy')
+        #support_instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_instance_label.npy')
         instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
 
         if not self.use_color:
