@@ -89,13 +89,6 @@ def compute_support_vote_loss(end_points):
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'].shape[0]
     num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
-
-    #vote_xyz_support = end_points['vote_xyz_support'] # B,num_seed*vote_factor,3
-    #vote_xyz_bsupport = end_points['vote_xyz_bsupport'] # B,num_seed*vote_factor,3
-    vote_xyz_support_center = end_points['vote_xyz_support_center'] # B,num_seed*vote_factor,3
-    vote_xyz_support_offset = end_points['vote_xyz_support_offset'] # B,num_seed*vote_factor,3
-    vote_xyz_bsupport_center = end_points['vote_xyz_bsupport_center'] # B,num_seed*vote_factor,3
-    vote_xyz_bsupport_offset = end_points['vote_xyz_bsupport_offset'] # B,num_seed*vote_factor,3
     seed_inds = end_points['seed_inds'].long() # B,num_seed in [0,num_points-1]
 
     # Get groundtruth votes for the seed points
@@ -105,22 +98,57 @@ def compute_support_vote_loss(end_points):
     #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
     seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
     
-    seed_gt_votes_mask_support = torch.gather(end_points['vote_label_mask_support'], 1, seed_inds)
-    #seed_gt_votes_support = torch.gather(end_points['vote_label_support'], 1, seed_inds_expand)
-    seed_gt_votes_support_center = torch.gather(end_points['vote_label_support_middle'], 1, seed_inds_expand)
-    seed_gt_votes_support_offset = torch.gather(end_points['vote_label_support_offset'], 1, seed_inds_expand)
-    seed_gt_votes_support_center += end_points['seed_xyz'].repeat(1,1,3)
-    seed_gt_votes_support_offset += end_points['seed_xyz'].repeat(1,1,3)
-
-    seed_gt_votes_mask_bsupport = torch.gather(end_points['vote_label_mask_bsupport'], 1, seed_inds)
-    #seed_gt_votes_bsupport = torch.gather(end_points['vote_label_bsupport'], 1, seed_inds_expand)
-    seed_gt_votes_bsupport_center = torch.gather(end_points['vote_label_bsupport_middle'], 1, seed_inds_expand)
-    seed_gt_votes_bsupport_offset = torch.gather(end_points['vote_label_bsupport_offset'], 1, seed_inds_expand)
-    seed_gt_votes_bsupport_center += end_points['seed_xyz'].repeat(1,1,3)
-    seed_gt_votes_bsupport_offset += end_points['seed_xyz'].repeat(1,1,3)
+    vote_xyz_corner = end_points['vote_xyz_corner'] # B,num_seed*vote_factor,3
+    seed_gt_votes_corner = torch.gather(end_points['vote_label_corner'], 1, seed_inds_expand)
+    seed_gt_votes_corner += end_points['seed_xyz'].repeat(1,1,3)
 
     # Compute the min of min of distance
-    """
+    vote_xyz_reshape_corner = vote_xyz_corner.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
+    seed_gt_votes_reshape_corner = seed_gt_votes_corner.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
+    dist1_corner, _, dist2_corner, _ = nn_distance(vote_xyz_reshape_corner, seed_gt_votes_reshape_corner, l1=True)
+    votes_dist_corner, _ = torch.min(dist2_corner, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
+    votes_dist_corner = votes_dist_corner.view(batch_size, num_seed)
+    vote_loss_corner = torch.sum(votes_dist_corner*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    vote_xyz = end_points['vote_xyz_bcenter'] # B,num_seed*vote_factor,3
+    seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
+    seed_gt_votes = torch.gather(end_points['vote_label_bcenter'], 1, seed_inds_expand)
+    seed_gt_votes += end_points['seed_xyz'].repeat(1,1,3)
+
+    # Compute the min of min of distance
+    vote_xyz_reshape = vote_xyz.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
+    seed_gt_votes_reshape = seed_gt_votes.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
+    dist1, _, dist2, _ = nn_distance(vote_xyz_reshape, seed_gt_votes_reshape, l1=True)
+    votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
+    votes_dist = votes_dist.view(batch_size, num_seed)
+    vote_loss = torch.sum(votes_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    
+    vote_xyz_support = end_points['vote_xyz_support'] # B,num_seed*vote_factor,3
+    vote_xyz_bsupport = end_points['vote_xyz_bsupport'] # B,num_seed*vote_factor,3
+    #vote_xyz_support_center = end_points['vote_xyz_support_center'] # B,num_seed*vote_factor,3
+    #vote_xyz_support_offset = end_points['vote_xyz_support_offset'] # B,num_seed*vote_factor,3
+    #vote_xyz_bsupport_center = end_points['vote_xyz_bsupport_center'] # B,num_seed*vote_factor,3
+    #vote_xyz_bsupport_offset = end_points['vote_xyz_bsupport_offset'] # B,num_seed*vote_factor,3
+        
+    seed_gt_votes_mask_support = torch.gather(end_points['vote_label_mask_support'], 1, seed_inds)
+    seed_gt_votes_support = torch.gather(end_points['vote_label_support'], 1, seed_inds_expand)
+    seed_gt_votes_support += end_points['seed_xyz'].repeat(1,1,3)
+    #seed_gt_votes_support_center = torch.gather(end_points['vote_label_support_middle'], 1, seed_inds_expand)
+    #seed_gt_votes_support_offset = torch.gather(end_points['vote_label_support_offset'], 1, seed_inds_expand)
+    #seed_gt_votes_support_center += end_points['seed_xyz'].repeat(1,1,3)
+    #seed_gt_votes_support_offset += end_points['seed_xyz'].repeat(1,1,3)
+
+    seed_gt_votes_mask_bsupport = torch.gather(end_points['vote_label_mask_bsupport'], 1, seed_inds)
+    seed_gt_votes_bsupport = torch.gather(end_points['vote_label_bsupport'], 1, seed_inds_expand)
+    seed_gt_votes_bsupport += end_points['seed_xyz'].repeat(1,1,3)
+    #seed_gt_votes_bsupport_center = torch.gather(end_points['vote_label_bsupport_middle'], 1, seed_inds_expand)
+    #seed_gt_votes_bsupport_offset = torch.gather(end_points['vote_label_bsupport_offset'], 1, seed_inds_expand)
+    #seed_gt_votes_bsupport_center += end_points['seed_xyz'].repeat(1,1,3)
+    #seed_gt_votes_bsupport_offset += end_points['seed_xyz'].repeat(1,1,3)
+
+    # Compute the min of min of distance
     vote_xyz_reshape_support = vote_xyz_support.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
     seed_gt_votes_reshape_support = seed_gt_votes_support.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
     # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
@@ -144,9 +172,9 @@ def compute_support_vote_loss(end_points):
     votes_dist_support_offset = votes_dist_support_offset.view(batch_size, num_seed)
     vote_loss_support_offset = torch.sum(votes_dist_support_offset*seed_gt_votes_mask_support.float())/(torch.sum(seed_gt_votes_mask_support.float())+1e-6)
     vote_loss_support = vote_loss_support_center + vote_loss_support_offset
+    """
     
     # Compute the min of min of distance
-    """
     vote_xyz_reshape_bsupport = vote_xyz_bsupport.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
     seed_gt_votes_reshape_bsupport = seed_gt_votes_bsupport.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
     # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
@@ -170,7 +198,8 @@ def compute_support_vote_loss(end_points):
     votes_dist_bsupport_offset = votes_dist_bsupport_offset.view(batch_size, num_seed)
     vote_loss_bsupport_offset = torch.sum(votes_dist_bsupport_offset*seed_gt_votes_mask_bsupport.float())/(torch.sum(seed_gt_votes_mask_bsupport.float())+1e-6)
     vote_loss_bsupport = vote_loss_bsupport_center + vote_loss_bsupport_offset
-    return vote_loss_support, vote_loss_bsupport
+    """
+    return vote_loss, vote_loss_corner, vote_loss_support, vote_loss_bsupport
 
 def compute_objectness_loss(end_points, mode=''):
     """ Compute objectness loss for the proposals.
@@ -364,13 +393,25 @@ def get_loss(end_points, config):
     
     # Compute support vote loss
     if end_points['use_support']:
-        vote_loss_support, vote_loss_bsupport = compute_support_vote_loss(end_points)
+        vote_loss_bcenter, vote_loss_corner, vote_loss_support, vote_loss_bsupport = compute_support_vote_loss(end_points)
+        end_points['vote_loss_bcenter'] = vote_loss_bcenter
+        end_points['vote_loss_corner'] = vote_loss_corner
         end_points['vote_loss_support'] = vote_loss_support
         end_points['vote_loss_bsupport'] = vote_loss_bsupport
+        #end_points['vote_loss_support_center'] = support_center
+        #end_points['vote_loss_bsupport_center'] = bsupport_center
+        #end_points['vote_loss_support_offset'] = support_offset
+        #end_points['vote_loss_bsupport_offset'] = bsupport_offset
     else:
         support_vote_loss, bsupport_vote_loss = 0,0
+        end_points['vote_loss_bcenter'] = torch.tensor(0)
+        end_points['vote_loss_corner'] = torch.tensor(0)
         end_points['vote_loss_support'] = torch.tensor(0)
         end_points['vote_loss_bsupport'] = torch.tensor(0)
+        #end_points['vote_loss_support_center'] = torch.tensor(0)
+        #end_points['vote_loss_bsupport_center'] = torch.tensor(0)
+        #end_points['vote_loss_support_offset'] = torch.tensor(0)
+        #end_points['vote_loss_bsupport_offset'] = torch.tensor(0)
         
     # Obj loss
     objectness_loss, objectness_label, objectness_mask, object_assignment = \
@@ -384,7 +425,7 @@ def get_loss(end_points, config):
                               torch.sum(objectness_label.float().cuda())/float(total_num_proposal)
     end_points['neg_ratio'] = \
                               torch.sum(objectness_mask.float())/float(total_num_proposal) - end_points['pos_ratio']
-    if end_points['use_support']:
+    if False:#end_points['use_support']:
         objectness_loss_support, objectness_label_support, objectness_mask_support, object_assignment_support = \
                                                                                 compute_objectness_loss(end_points, mode='_support')
         end_points['objectness_loss_support'] = objectness_loss_support
@@ -419,7 +460,7 @@ def get_loss(end_points, config):
     end_points['sem_cls_loss'] = sem_cls_loss
     box_loss = center_loss + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     end_points['box_loss'] = box_loss
-    if end_points['use_support']:
+    if False:#end_points['use_support']:
         center_loss_support, heading_cls_loss_support, heading_reg_loss_support, size_cls_loss_support, size_reg_loss_support, sem_cls_loss_support = \
         compute_box_and_sem_cls_loss(end_points, config, mode='_support')
         end_points['center_loss_support'] = center_loss_support
@@ -442,23 +483,29 @@ def get_loss(end_points, config):
         end_points['box_loss_bsupport'] = box_loss_bsupport
     
     # Final loss function
-    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
+    loss = vote_loss# + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
     loss *= 10
     end_points['loss'] = loss
     if end_points['use_support']:
-        loss_support = vote_loss_support + 0.5*objectness_loss_support + box_loss_support + 0.1*sem_cls_loss_support
+        loss_support = vote_loss_support #+ 0.5*objectness_loss_support + box_loss_support + 0.1*sem_cls_loss_support
         loss_support *= 10
         end_points['loss_support'] = loss_support
-        loss_bsupport = vote_loss_bsupport + 0.5*objectness_loss_bsupport + box_loss_bsupport + 0.1*sem_cls_loss_bsupport
+        loss_bsupport = vote_loss_bsupport #+ 0.5*objectness_loss_bsupport + box_loss_bsupport + 0.1*sem_cls_loss_bsupport
         loss_bsupport *= 10
         end_points['loss_bsupport'] = loss_bsupport
+        loss_bcenter = vote_loss_bcenter
+        loss_bcenter *= 10
+        end_points['loss_bcenter'] = loss_bcenter
+        loss_corner = vote_loss_corner
+        loss_corner *= 10
+        end_points['loss_corner'] = loss_corner
         
     # --------------------------------------------
     # Some other statistics
     obj_pred_val = torch.argmax(end_points['objectness_scores'], 2) # B,K
     obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float()*objectness_mask)/(torch.sum(objectness_mask)+1e-6)
     end_points['obj_acc'] = obj_acc
-    if end_points['use_support']:
+    if False:#end_points['use_support']:
         obj_pred_val_support = torch.argmax(end_points['objectness_scores_support'], 2) # B,K
         obj_acc_support = torch.sum((obj_pred_val_support==objectness_label_support.long()).float()*objectness_mask_support)/(torch.sum(objectness_mask_support)+1e-6)
         end_points['obj_acc_support'] = obj_acc_support
@@ -467,5 +514,6 @@ def get_loss(end_points, config):
         end_points['obj_acc_bsupport'] = obj_acc_bsupport
 
     if end_points['use_support']:
-        loss = loss + loss_support + loss_bsupport
+        loss = loss + loss_support + loss_bsupport + loss_bcenter + loss_corner
+        #loss = loss_support + loss_bsupport + loss_bcenter
     return loss, end_points

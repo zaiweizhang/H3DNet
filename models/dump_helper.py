@@ -122,6 +122,20 @@ def dump_results(end_points, dump_dir, config, inference_switch=False):
             pc_util.write_oriented_bbox(obbs, os.path.join(dump_dir, '%06d_gt_bbox.ply'%(idx_beg+i)))
 
     # OPTIONALL, also dump prediction and gt details
+    if 'vote_xyz_bcenter' in end_points:
+        for ii in range(batch_size):
+            pc_util.write_ply(end_points['vote_xyz_bcenter'][ii,:,:], os.path.join(dump_dir, '%06d_vgen_bcenter_pc.ply'%(idx_beg+ii)))
+    if 'vote_xyz_corner' in end_points:
+        for ii in range(batch_size):
+            pc_util.write_ply(end_points['vote_xyz_corner'][ii,:,:], os.path.join(dump_dir, '%06d_vgen_corner_pc.ply'%(idx_beg+ii)))
+    if 'vote_xyz_support' in end_points:
+        for ii in range(batch_size):
+            pc_util.write_ply(end_points['vote_xyz_support'][ii,:,:], os.path.join(dump_dir, '%06d_vgen_support_pc.ply'%(idx_beg+ii)))
+    if 'vote_xyz_bsupport' in end_points:
+        for ii in range(batch_size):
+            pc_util.write_ply(end_points['vote_xyz_bsupport'][ii,:,:], os.path.join(dump_dir, '%06d_vgen_bsupport_pc.ply'%(idx_beg+ii)))
+    
+            
     if 'batch_pred_map_cls' in end_points:
         for ii in range(batch_size):
             fout = open(os.path.join(dump_dir, '%06d_pred_map_cls.txt'%(ii)), 'w')

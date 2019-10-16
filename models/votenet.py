@@ -22,6 +22,7 @@ from backbone_module_pairwise import Pointnet2BackbonePairwise
 from backbone_module_decoder import Pointnet2BackboneDecoder
 from backbone_module_dis import Pointnet2BackboneDis
 from voting_module import VotingModule
+from mean_shift_module import MeanShiftModule
 from proposal_module import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
@@ -149,6 +150,7 @@ class VoteNet(nn.Module):
 
         # Backbone point feature learning
         self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        #self.backbone_net_other = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net_sem_support = Pointnet2BackbonePairwise(input_feature_dim=(num_class+1), task="sem")
         #self.backbone_net_tosem_support = Pointnet2BackboneDecoder(input_feature_dim=num_class*2, task="decoder")
         #self.backbone_net_tosem_support = Pointnet2BackboneDis(input_feature_dim=num_class*2, task="decoder")
@@ -167,6 +169,7 @@ class VoteNet(nn.Module):
 
         # Hough voting
         self.vgen = VotingModule(self.vote_factor, 256)
+        #self.vgen = MeanShiftModule(self.vote_factor, 256)
         
         # Vote aggregation and detection
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
@@ -190,6 +193,7 @@ class VoteNet(nn.Module):
         batch_size = inputs['point_clouds'].shape[0]
 
         end_points = self.backbone_net(inputs['point_clouds'], end_points)
+        #end_points = self.backbone_net_other(inputs['point_clouds'], end_points, mode='other')
 
         ### Semantic Segmentation
         #sem_feature = torch.cat((end_points['fp2_features'], end_points['xyz'].transpose(2,1)), 1)
@@ -205,34 +209,39 @@ class VoteNet(nn.Module):
         end_points['seed_xyz'] = xyz
         end_points['seed_features'] = features
 
-        xyz, features, xyz_support, features_support, xyz_support_center, xyz_support_offset, xyz_bsupport, features_bsupport, xyz_bsupport_center, xyz_bsupport_offset  = self.vgen(xyz, features)
+        xyz, features, xyz_bcenter, xyz_corner, xyz_support, features_support, xyz_bsupport, features_bsupport  = self.vgen(xyz, features)
 
         features_norm = torch.norm(features, p=2, dim=1)
         features = features.div(features_norm.unsqueeze(1))
         end_points['vote_xyz'] = xyz
         end_points['vote_features'] = features
+
+        end_points['vote_xyz_bcenter'] = xyz_bcenter
+        end_points['vote_xyz_corner'] = xyz_corner
         
         features_norm_support = torch.norm(features_support, p=2, dim=1)
         features_support = features_support.div(features_norm_support.unsqueeze(1))
         end_points['vote_xyz_support'] = xyz_support
-        end_points['vote_xyz_support_center'] = xyz_support_center
-        end_points['vote_xyz_support_offset'] = xyz_support_offset
+        #end_points['vote_xyz_support_center'] = xyz_support_center
+        #end_points['vote_xyz_support_offset'] = xyz_support_offset
         end_points['vote_features_support'] = features_support
         
         features_norm_bsupport = torch.norm(features_bsupport, p=2, dim=1)
         features_bsupport = features_bsupport.div(features_norm_bsupport.unsqueeze(1))
         end_points['vote_xyz_bsupport'] = xyz_bsupport
-        end_points['vote_xyz_bsupport_center'] = xyz_bsupport_center
-        end_points['vote_xyz_bsupport_offset'] = xyz_bsupport_offset
+        #end_points['vote_xyz_bsupport_center'] = xyz_bsupport_center
+        #end_points['vote_xyz_bsupport_offset'] = xyz_bsupport_offset
         end_points['vote_features_bsupport'] = features_bsupport
 
         end_points = self.pnet(xyz, features, end_points)
 
+        """
         if end_points['use_support']:
             end_points = self.pnet(xyz_support, features_support, end_points, mode='_support')
             end_points = self.pnet(xyz_bsupport, features_bsupport, end_points, mode='_bsupport')
             #xyz = torch.cat((xyz, xyz_support, xyz_bsupport), 1)
             #features = torch.cat((features, features_support, features_bsupport), 2)
+        """
         #import pdb;pdb.set_trace()
         return end_points
 

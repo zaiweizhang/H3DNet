@@ -83,6 +83,7 @@ class ProposalModule(nn.Module):
         Returns:
             scores: (B,num_proposal,2+3+NH*2+NS*4) 
         """
+        """
         if mode != '':
             xyz, features, fps_inds = self.vote_aggregation(xyz, features, inds=end_points['aggregated_vote_inds'].detach().int())
             ##sample_inds = fps_inds
@@ -100,7 +101,7 @@ class ProposalModule(nn.Module):
             
             end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode=mode)
             return end_points
-
+        """
         if self.sampling == 'vote_fps':
             # Farthest point sampling (FPS) on votes
             xyz, features, fps_inds = self.vote_aggregation(xyz, features)
