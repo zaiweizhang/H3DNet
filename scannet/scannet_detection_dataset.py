@@ -22,9 +22,42 @@ from model_util_scannet import rotate_aligned_boxes
 from model_util_scannet import ScannetDatasetConfig
 
 from scipy.optimize import linear_sum_assignment
+from scipy.optimize import leastsq
+
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 100#64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
+
+def f_min(X,p):
+    plane_xyz = p[0:3]
+    distance = (plane_xyz*X.T).sum(axis=1) + p[3]
+    return distance / np.linalg.norm(plane_xyz)
+
+def residuals(params, signal, X):
+    return f_min(X, params)
+
+def params2bbox(center, xsize, ysize, zsize, angle):
+    ''' from bbox_center, angle and size to bbox
+    @Args:
+        center: (3)
+        x/y/zsize: scalar
+        angle: -pi ~ pi
+    @Returns:
+        bbox: 8 x 3, order:
+         [[xmin, ymin, zmin], [xmin, ymin, zmax], [xmin, ymax, zmin], [xmin, ymax, zmax],
+          [xmax, ymin, zmin], [xmax, ymin, zmax], [xmax, ymax, zmin], [xmax, ymax, zmax]]
+    '''
+    vx = np.array([np.cos(angle), np.sin(angle), 0])
+    vy = np.array([-np.sin(angle), np.cos(angle), 0])
+    vx = vx * np.abs(xsize) / 2
+    vy = vy * np.abs(ysize) / 2
+    vz = np.array([0, 0, np.abs(zsize) / 2])
+    bbox = np.array([\
+        center - vx - vy - vz, center - vx - vy + vz,
+        center - vx + vy - vz, center - vx + vy + vz,
+        center + vx - vy - vz, center + vx - vy + vz,
+        center + vx + vy - vz, center + vx + vy + vz])
+    return bbox
 
 def pdist2(x1, x2):
     """ Computes the squared Euclidean distance between all pairs """
@@ -117,11 +150,15 @@ class ScannetDetectionDataset(Dataset):
         
         scan_name = self.scan_names[idx]        
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
-        instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
-        semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
-        support_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_label.npy')
-        support_instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_instance_label.npy')
-        instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
+        plane_vertices = np.load(os.path.join(self.data_path, scan_name)+'_plane.npy')
+        meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all.npy') ### Need to change the name here
+        instance_labels = meta_vertices[:,-2]
+        semantic_labels = meta_vertices[:,-1]
+        #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
+        #semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
+        #support_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_label.npy')
+        #support_instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_instance_label.npy')
+        #instance_bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy')
         
         if not self.use_color:
             point_cloud = mesh_vertices[:,0:3] # do not use color for now
@@ -144,20 +181,6 @@ class ScannetDetectionDataset(Dataset):
         size_classes = np.zeros((MAX_NUM_OBJ,))
         size_residuals = np.zeros((MAX_NUM_OBJ, 3))
 
-        target_bboxes_support = np.zeros((MAX_NUM_OBJ, 6))
-        target_bboxes_mask_support = np.zeros((MAX_NUM_OBJ))    
-        angle_classes_support = np.zeros((MAX_NUM_OBJ,))
-        angle_residuals_support = np.zeros((MAX_NUM_OBJ,))
-        size_classes_support = np.zeros((MAX_NUM_OBJ,))
-        size_residuals_support = np.zeros((MAX_NUM_OBJ, 3))
-
-        target_bboxes_bsupport = np.zeros((MAX_NUM_OBJ, 6))
-        target_bboxes_mask_bsupport = np.zeros((MAX_NUM_OBJ))    
-        angle_classes_bsupport = np.zeros((MAX_NUM_OBJ,))
-        angle_residuals_bsupport = np.zeros((MAX_NUM_OBJ,))
-        size_classes_bsupport = np.zeros((MAX_NUM_OBJ,))
-        size_residuals_bsupport = np.zeros((MAX_NUM_OBJ, 3))
-
         before_sample = np.unique(instance_labels)
         while True:
             orig_point_cloud = np.copy(point_cloud)
@@ -169,14 +192,15 @@ class ScannetDetectionDataset(Dataset):
                 break
         instance_labels = instance_labels[choices]
         semantic_labels = semantic_labels[choices]
-                        
-        pcl_color = pcl_color[choices]
+        plane_vertices = plane_vertices[choices]
+        meta_vertices = meta_vertices[choices]
         
-        target_bboxes_mask[0:instance_bboxes.shape[0]] = 1
-        target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
+        pcl_color = pcl_color[choices]
+
+        #target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
         
         # ------------------------------- DATA AUGMENTATION ------------------------------        
-        if self.augment:
+        if False:#self.augment:## Do not use augment for now
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_cloud[:,0] = -1 * point_cloud[:,0]
@@ -194,9 +218,6 @@ class ScannetDetectionDataset(Dataset):
             target_bboxes = rotate_aligned_boxes(target_bboxes, rot_mat)
 
         # ------------------------------- SUPPORT RELATION ------------------------------
-        support_labels = support_labels[choices]
-        support_instance_labels = support_instance_labels[choices]
-        
         # compute votes *AFTER* augmentation
         # generate votes
         # Note: since there's no map between bbox instance labels and
@@ -204,18 +225,19 @@ class ScannetDetectionDataset(Dataset):
         # in the data preparation step) we'll compute the instance bbox
         # from the points sharing the same instance label. 
         point_votes = np.zeros([self.num_points, 3])
-        point_votes_bbcenter = np.zeros([self.num_points, 3])
         point_votes_corner = np.zeros([self.num_points, 3])
-        point_votes_support = np.zeros([self.num_points, 3])
-        point_votes_bsupport = np.zeros([self.num_points, 3])
-        point_votes_support_middle = np.zeros([self.num_points, 3])
-        point_votes_bsupport_middle = np.zeros([self.num_points, 3])
-        point_votes_support_offset = np.zeros([self.num_points, 3])
-        point_votes_bsupport_offset = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
-        point_votes_support_mask = np.zeros(self.num_points)
-        point_votes_bsupport_mask = np.zeros(self.num_points)
-        num_instance = len(instance_bboxes)
+        
+        ### Plane Patches
+        plane_label = np.zeros([self.num_points, 3+4])
+        plane_label_mask = np.zeros(self.num_points)
+        plane_votes_front = np.zeros([self.num_points, 4])
+        plane_votes_back = np.zeros([self.num_points, 4])
+        plane_votes_left = np.zeros([self.num_points, 4])
+        plane_votes_right = np.zeros([self.num_points, 4])
+        plane_votes_upper = np.zeros([self.num_points, 4])
+        plane_votes_lower = np.zeros([self.num_points, 4])
+        
         #assert(num_instance == len(np.unique(instance_labels)) - 1)
         """
         if 0 in np.unique(instance_labels):
@@ -228,143 +250,82 @@ class ScannetDetectionDataset(Dataset):
         selected_centers = []
         selected_centers_support = []
         selected_centers_bsupport = []
+        obj_meta = []
+        
         for i_instance in np.unique(instance_labels):            
             # find all points belong to that instance
             ind = np.where(instance_labels == i_instance)[0]
             # find the semantic label            
             if semantic_labels[ind[0]] in DC.nyu40ids:
                 x = point_cloud[ind,:3]
+                ### Meta information here
+                meta = meta_vertices[ind[0]]
+                obj_meta.append(meta)
                 
-                lower = x.min(0)
-                upper = x.max(0)
-                center = 0.5*(lower + upper)
-                bbcenters = [np.array([0.5*(lower[0] + upper[0]), 0.5*(lower[1] + upper[1]), lower[2]]), np.array([0.5*(lower[0] + upper[0]), 0.5*(lower[1] + upper[1]), upper[2]]), np.array([lower[0], 0.5*(lower[1] + upper[1]), 0.5*(lower[2] + upper[2])]), np.array([upper[0], 0.5*(lower[1] + upper[1]), 0.5*(lower[2] + upper[2])]), np.array([0.5*(lower[0] + upper[0]), lower[1], 0.5*(lower[2] + upper[2])]), np.array([0.5*(lower[0] + upper[0]), upper[1], 0.5*(lower[2] + upper[2])])]
-                corners = [np.array([lower[0], lower[1], lower[2]]), np.array([upper[0], lower[1], lower[2]]), np.array([lower[0], upper[1], lower[2]]), np.array([upper[0], upper[1], lower[2]]), np.array([lower[0], lower[1], upper[2]]), np.array([upper[0], lower[1], upper[2]]), np.array([lower[0], upper[1], upper[2]]), np.array([upper[0], upper[1], upper[2]])]
+                ### Get the centroid here
+                center = meta[:3]
+
+                ### Corners
+                corners = params2bbox(center, meta[3], meta[4], meta[5], meta[6])
+                
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
-                
-                xtemp = np.stack([x]*len(bbcenters))
-                dist = np.sum(np.square(xtemp - np.expand_dims(bbcenters, 1)), axis=2)
-                sel = np.argmin(dist, 0)
+
                 xtemp = np.stack([x]*len(corners))
                 dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
                 sel_corner = np.argmin(dist, 0)
                 for i in range(len(ind)):
-                    point_votes_bbcenter[ind[i], :] = bbcenters[sel[i]] - x[i,:]
-                    point_votes_corner[ind[i], :] = corners[sel[i]] - x[i,:]
+                    point_votes_corner[ind[i], :] = corners[sel_corner[i]] - x[i,:]
                 selected_instances.append(i_instance)
                 selected_centers.append(center)
-                
-                # find votes for supported object
-                j_instance = np.unique(support_instance_labels[ind][:, :(num_instance-1)])
-                if 0 in j_instance:
-                    j_instance = j_instance[1:]
-                if len(j_instance) > 0:
-                    centers = []
-                    bbcenters = []
-                    #offset = []
-                    for j_inst in j_instance:
-                        if j_inst == 0:
-                            continue
-                        if j_inst not in np.unique(instance_labels):
-                            continue
-                        jind = np.where(instance_labels == j_inst)[0]
-                        if semantic_labels[jind[0]] in DC.nyu40ids:
-                            j = point_cloud[jind,:3]
-                            jcenter = 0.5*(j.min(0) + j.max(0))
-                            centers.append(jcenter)
-                            #offset.append(jcenter - x)
-                            lower = j.min(0)
-                            upper = j.max(0)
-                            bbcenters.append(np.array([lower[0], lower[1], lower[2]]))
-                            bbcenters.append(np.array([upper[0], lower[1], lower[2]]))
-                            bbcenters.append(np.array([lower[0], upper[1], lower[2]]))
-                            bbcenters.append(np.array([upper[0], upper[1], lower[2]]))
-                            
-                            selected_centers_support.append(jcenter)
-                    if len(bbcenters) > 0:
-                        #offset = np.stack(offset)
-                        #xtemp = np.stack([x]*len(centers))
-                        xtemp = np.stack([x]*len(bbcenters))
-                        dist = np.sum(np.square(xtemp - np.expand_dims(bbcenters, 1)), axis=2)
-                        sel = np.argmin(dist, 0)
 
-                        #other_sel = np.argmin(dist, 1)
-                        #other_centers = x[other_sel]
-                        #other_dist = np.sum(np.square(xtemp - np.expand_dims(other_centers, 1)), axis=2)
-                        #sel_near = np.argmin(other_dist, 0)
-                        #othercenter = np.stack([other_centers]*len(ind))
-                        
-                        #tempcenter = np.stack([np.array(bbcenters)]*len(ind))
-                        tempcenter = np.array(bbcenters)
-                        for i in range(len(ind)):
-                            point_votes_support[ind[i], :] = tempcenter[sel[i], :] - x[i,:]
-                            #point_votes_support_middle[ind[i], :] = othercenter[i, sel_near[i], :] - x[i,:]
-                            #point_votes_support_offset[ind[i], :] = tempcenter[i, sel[i], :] - othercenter[i, sel_near[i], :]
-                        point_votes_support_mask[ind] = 1.0
-            
-                # find votes for bsupported object
-                j_instance = np.unique(support_instance_labels[ind][:, (num_instance-1):])
-                if 0 in j_instance:
-                    j_instance = j_instance[1:]
-                if len(j_instance) > 0:
-                    centers = []
-                    bbcenters = []
-                    #offset = []
-                    for j_inst in j_instance:
-                        if j_inst == 0:
-                            continue
-                        if j_inst not in np.unique(instance_labels):
-                            continue
-                        jind = np.where(instance_labels == j_inst)[0]
-                        if semantic_labels[jind[0]] in DC.nyu40ids:
-                            j = point_cloud[jind,:3]
-                            jcenter = 0.5*(j.min(0) + j.max(0))
-                            centers.append(jcenter)
-                            #offset.append(jcenter - x)
-                            lower = x.min(0)
-                            upper = x.max(0)
-                            bbcenters.append(np.array([lower[0], lower[1], lower[2]]))
-                            bbcenters.append(np.array([upper[0], lower[1], lower[2]]))
-                            bbcenters.append(np.array([lower[0], upper[1], lower[2]]))
-                            bbcenters.append(np.array([upper[0], upper[1], lower[2]]))
-                            selected_centers_bsupport.append(jcenter)
-                    if len(bbcenters) > 0:
-                        #offset = np.stack(offset)
-                        xtemp = np.stack([x]*len(bbcenters))
-                        dist = np.sum(np.square(xtemp - np.expand_dims(bbcenters, 1)), axis=2)
-                        sel = np.argmin(dist, 0)
+                ### check for planes here
+                '''
+                @Returns:
+                bbox: 8 x 3, order:
+                [[xmin, ymin, zmin], [xmin, ymin, zmax], [xmin, ymax, zmin], [xmin, ymax, zmax],
+                 [xmax, ymin, zmin], [xmax, ymin, zmax], [xmax, ymax, zmin], [xmax, ymax, zmax]]
+                '''
+                plane_indicator = plane_vertices[ind,4]
+                planes = np.unique(plane_indicator)
+                plane_ind = []
+                for p in planes:
+                    if p > 0:
+                        plane_ind.append(np.where(plane_vertices == p)[0])
+                if len(plane_ind) > 0:
+                    plane_ind = np.concatenate(plane_ind, 0)
+                    plane_label_mask[plane_ind] = 1.0
+                    plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4] / np.expand_dims(plane_vertices[plane_ind,3], -1)
+                    plane_lower = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
+                    plane_upper = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[1], corners[3], corners[5], corners[7]]).T))[0]
+                    plane_left = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
+                    plane_right = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[4], corners[5], corners[6], corners[7]]).T))[0]
+                    plane_front = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                    plane_back = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[2], corners[3], corners[6], corners[7]]).T))[0]
 
-                        #other_sel = np.argmin(dist, 1)
-                        #other_centers = x[other_sel]
-                        #other_dist = np.sum(np.square(xtemp - np.expand_dims(other_centers, 1)), axis=2)
-                        #sel_near = np.argmin(other_dist, 0)
-                        #othercenter = np.stack([other_centers]*len(ind))
+                    plane_votes_upper[plane_ind,:] = plane_upper / plane_upper[-1]
+                    plane_votes_lower[plane_ind,:] = plane_lower / plane_lower[-1]
+                    plane_votes_front[plane_ind,:] = plane_front / plane_front[-1]
+                    plane_votes_back[plane_ind,:] = plane_back / plane_back[-1]
+                    plane_votes_left[plane_ind,:] = plane_left / plane_left[-1]
+                    plane_votes_right[plane_ind,:] = plane_right / plane_right[-1]
+                    #import pdb;pdb.set_trace()
+                    
+        obj_meta = np.stack(obj_meta, 0)
 
-                        #tempcenter = np.stack([np.array(centers)]*len(ind))
-                        tempcenter = np.array(bbcenters)
-                        for i in range(len(ind)):
-                            point_votes_bsupport[ind[i], :] = tempcenter[sel[i], :] - x[i,:]
-                            #point_votes_bsupport_middle[ind[i], :] = othercenter[i, sel_near[i], :] - x[i,:]
-                            #point_votes_bsupport_offset[ind[i], :] = tempcenter[i, sel[i], :] - othercenter[i, sel_near[i], :]
-                        point_votes_bsupport_mask[ind] = 1.0
-
-        support_idx, bsupport_idx = find_idx(target_bboxes[0:instance_bboxes.shape[0],0:3], selected_centers, selected_centers_support, selected_centers_bsupport)
+        num_instance = obj_meta.shape[0]
+        target_bboxes_mask[0:num_instance] = 1
+        target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
-        point_votes_bbcenter = np.tile(point_votes_bbcenter, (1, 3)) # make 3 votes identical
         point_votes_corner = np.tile(point_votes_corner, (1, 3)) # make 3 votes identical
-        point_votes_support = np.tile(point_votes_support, (1, 3)) # make 3 votes identical
-        #point_votes_support_middle = np.tile(point_votes_support_middle, (1, 3)) # make 3 votes identical
-        #point_votes_support_offset = np.tile(point_votes_support_offset, (1, 3)) # make 3 votes identical
-        point_votes_bsupport = np.tile(point_votes_bsupport, (1, 3)) # make 3 votes identical
-        #point_votes_bsupport_middle = np.tile(point_votes_bsupport_middle, (1, 3)) # make 3 votes identical
-        #point_votes_bsupport_offset = np.tile(point_votes_bsupport_offset, (1, 3)) # make 3 votes identical 
-
-        class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in instance_bboxes[:,-1]]   
+        
+        class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
         # NOTE: set size class as semantic class. Consider use size2class.
-        size_classes[0:instance_bboxes.shape[0]] = class_ind
-        size_residuals[0:instance_bboxes.shape[0], :] = \
-            target_bboxes[0:instance_bboxes.shape[0], 3:6] - DC.mean_size_arr[class_ind,:]
+        size_classes[0:num_instance] = class_ind
+        angle_classes[0:num_instance] = class_ind
+        size_residuals[0:num_instance, :] = \
+            target_bboxes[0:num_instance, 3:6] - DC.mean_size_arr[class_ind,:]
+        #angle_residuals[0:num_instance] = obj_meta[:,6]
 
         ret_dict = {}
                 
@@ -376,59 +337,23 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
         
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
-        target_bboxes_semcls[0:instance_bboxes.shape[0]] = \
-            [DC.nyu40id2class[x] for x in instance_bboxes[:,-1][0:instance_bboxes.shape[0]]]                
+        target_bboxes_semcls[0:num_instance] = \
+            [DC.nyu40id2class[x] for x in obj_meta[:,-1][0:obj_meta.shape[0]]]                
         ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
-        ### Label for support
-        target_bboxes_support[0:len(support_idx),...] = target_bboxes[support_idx,...]
-        ret_dict['center_label_support'] = target_bboxes_support.astype(np.float32)[:,0:3]
-        angle_classes_support[0:len(support_idx),...] = angle_classes[support_idx,...]
-        ret_dict['heading_class_label_support'] = angle_classes_support.astype(np.int64)
-        angle_residuals_support[0:len(support_idx),...] = angle_residuals[support_idx,...]
-        ret_dict['heading_residual_label_support'] = angle_residuals_support.astype(np.float32)
-        size_classes_support[0:len(support_idx),...] = size_classes[support_idx, ...]
-        ret_dict['size_class_label_support'] = size_classes_support.astype(np.int64)
-        size_residuals_support[0:len(support_idx),...] = size_residuals[support_idx, ...]
-        ret_dict['size_residual_label_support'] = size_residuals_support.astype(np.float32)
-        
-        target_bboxes_semcls_support = np.zeros((MAX_NUM_OBJ))                                
-        target_bboxes_semcls_support[0:len(support_idx)] = target_bboxes_semcls[support_idx]
-        ret_dict['sem_cls_label_support'] = target_bboxes_semcls_support.astype(np.int64)
-        target_bboxes_mask_support[0:len(support_idx),...] = target_bboxes_mask[support_idx, ...]
-        ret_dict['box_label_mask_support'] = target_bboxes_mask_support.astype(np.float32)
-
-        ### Label for bsupport
-        target_bboxes_bsupport[0:len(bsupport_idx),...] = target_bboxes[bsupport_idx,...]
-        ret_dict['center_label_bsupport'] = target_bboxes_bsupport.astype(np.float32)[:,0:3]
-        angle_classes_bsupport[0:len(bsupport_idx),...] = angle_classes[bsupport_idx,...]
-        ret_dict['heading_class_label_bsupport'] = angle_classes_bsupport.astype(np.int64)
-        angle_residuals_bsupport[0:len(bsupport_idx),...] = angle_residuals[bsupport_idx,...]
-        ret_dict['heading_residual_label_bsupport'] = angle_residuals_bsupport.astype(np.float32)
-        size_classes_bsupport[0:len(bsupport_idx),...] = size_classes[bsupport_idx, ...]
-        ret_dict['size_class_label_bsupport'] = size_classes_bsupport.astype(np.int64)
-        size_residuals_bsupport[0:len(bsupport_idx),...] = size_residuals[bsupport_idx, ...]
-        ret_dict['size_residual_label_bsupport'] = size_residuals_bsupport.astype(np.float32)
-        
-        target_bboxes_semcls_bsupport = np.zeros((MAX_NUM_OBJ))                                
-        target_bboxes_semcls_bsupport[0:len(bsupport_idx)] = target_bboxes_semcls[bsupport_idx]
-        ret_dict['sem_cls_label_bsupport'] = target_bboxes_semcls_bsupport.astype(np.int64)
-        target_bboxes_mask_bsupport[0:len(bsupport_idx),...] = target_bboxes_mask[bsupport_idx, ...]
-        ret_dict['box_label_mask_bsupport'] = target_bboxes_mask_bsupport.astype(np.float32)
-
         ret_dict['vote_label'] = point_votes.astype(np.float32)
-        ret_dict['vote_label_bcenter'] = point_votes_bbcenter.astype(np.float32)
         ret_dict['vote_label_corner'] = point_votes_corner.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
-        ret_dict['vote_label_support'] = point_votes_support.astype(np.float32)
-        #ret_dict['vote_label_support_middle'] = point_votes_support_middle.astype(np.float32)
-        #ret_dict['vote_label_support_offset'] = point_votes_support_offset.astype(np.float32)
-        ret_dict['vote_label_mask_support'] = point_votes_support_mask.astype(np.int64)
-        ret_dict['vote_label_bsupport'] = point_votes_bsupport.astype(np.float32)
-        #ret_dict['vote_label_bsupport_middle'] = point_votes_bsupport_middle.astype(np.float32)
-        #ret_dict['vote_label_bsupport_offset'] = point_votes_bsupport_offset.astype(np.float32)
-        ret_dict['vote_label_mask_bsupport'] = point_votes_bsupport_mask.astype(np.int64)
+
+        ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices], 1).astype(np.float32)
+        ret_dict['plane_label_mask'] = plane_label_mask.astype(np.float32)
+        ret_dict['plane_votes_front'] = plane_votes_front.astype(np.float32)
+        ret_dict['plane_votes_back'] = plane_votes_back.astype(np.float32)
+        ret_dict['plane_votes_left'] = plane_votes_left.astype(np.float32)
+        ret_dict['plane_votes_right'] = plane_votes_right.astype(np.float32)
+        ret_dict['plane_votes_lower'] = plane_votes_lower.astype(np.float32)
+        ret_dict['plane_votes_upper'] = plane_votes_upper.astype(np.float32)
         
         ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
         ret_dict['pcl_color'] = pcl_color
@@ -447,6 +372,14 @@ def viz_votes(pc, point_votes, point_votes_mask, name=''):
     pc_obj_voted1 = pc_obj + point_votes[inds,0:3]    
     pc_util.write_ply(pc_obj, 'pc_obj{}.ply'.format(name))
     pc_util.write_ply(pc_obj_voted1, 'pc_obj_voted1{}.ply'.format(name))
+
+def viz_plane(point_planes, point_planes_mask, name=''):
+    """ Visualize point votes and point votes mask labels
+    pc: (N,3 or 6), point_votes: (N,9), point_votes_mask: (N,)
+    """
+    inds = (point_planes_mask==1)
+    pc_plane = point_planes[inds,:]
+    pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,3:], 'pc_obj_planes{}.ply'.format(name))
     
 def viz_obb(pc, label, mask, angle_classes, angle_residuals,
     size_classes, size_residuals, name=''):
@@ -482,15 +415,11 @@ if __name__=='__main__':
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))    
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
-        viz_votes(example['point_clouds'], example['vote_label_bcenter'],
-                  example['vote_label_mask'],name=str(i_example)+'bcenter')
         viz_votes(example['point_clouds'], example['vote_label_corner'],
                   example['vote_label_mask'],name=str(i_example)+'corner')
-        viz_votes(example['point_clouds'], example['vote_label_support'],
-                  example['vote_label_mask_support'],name=str(i_example)+'support')
+        viz_plane(example['plane_label'],
+                  example['plane_label_mask'],name=str(i_example)+'plane')
         #viz_votes(example['point_clouds'], example['vote_label_support_middle'],example['vote_label_mask_support'],name=str(i_example)+'support_middle')
-        viz_votes(example['point_clouds'], example['vote_label_bsupport'],
-                  example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport')
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_middle'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_middle')
         #viz_votes(example['point_clouds'], example['vote_label_support_offset'],example['vote_label_mask_support'],name=str(i_example)+'support_offset')
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_offset'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_offset')
