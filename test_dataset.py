@@ -42,11 +42,10 @@ def params2bbox(center, xsize, ysize, zsize, angle):
 
 if __name__ == '__main__':
     '''
-    _orient_bbox.npy: 500000 * 8
+    _all.npy: 500000 * 9
     each line: 
-        center_x, center_y, center_z, size_x, size_y, size_z, angle, instance_label
+        center_x, center_y, center_z, size_x, size_y, size_z, angle, instance_label, semantic label
     '''
-    # scannet_dir = '/home/yanghaitao/Dataset/Dataset/scansv2/scans/'
     dataset_dir = '/home/yanghaitao/Dataset/scannet_train_detection_data/'
 
     filelist = os.listdir(dataset_dir) 
@@ -54,17 +53,18 @@ if __name__ == '__main__':
     files = np.unique(filelist) 
 
     for sceneid in files:
-        obbox = np.load(dataset_dir + sceneid + '_orient_bbox.npy') 
-        bbox  = np.load(dataset_dir + sceneid + '_bbox.npy') 
-        inst  = np.load(dataset_dir + sceneid + '_ins_label.npy') 
-        sem   = np.load(dataset_dir + sceneid + '_sem_label.npy') 
+        label = np.load(dataset_dir + sceneid + '_all.npy') 
+        obbox = label[:, :7]
+        inst  = label[:, 7]
+        sem   = label[:, 8]
         xyz   = np.load(dataset_dir + sceneid + '_vert.npy')                                                                                       
 
         obbox_list = [] 
-        for i in np.unique(obbox[:, -1]): 
-            semi = np.unique(sem[np.where(inst == i)])[0] 
+        for i in np.unique(inst): 
+            segid = np.where(inst == i)
+            semi = np.unique(sem[segid])[0] 
             if semi > 0 and semi < 38: 
-                obbox_list.append(obbox[np.where(inst == i)][0]) 
+                obbox_list.append(obbox[segid][0]) 
         obboxvis = np.vstack(obbox_list)                                                                                           
 
         lineset_box_list = [] 
