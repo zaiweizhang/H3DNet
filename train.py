@@ -39,6 +39,8 @@ from pytorch_utils import BNMomentumScheduler
 from tf_visualizer import Visualizer as TfVisualizer
 from ap_helper import APCalculator, parse_predictions, parse_groundtruths
 
+from dump_helper import dump_results, dump_planes, dump_objcue
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
 parser.add_argument('--dataset', default='sunrgbd', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
@@ -60,7 +62,9 @@ parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to deca
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
-parser.add_argument('--use_support', action='store_true', help='Use support relation in input.')
+parser.add_argument('--use_objcue', action='store_true', help='Use support relation in input.')
+parser.add_argument('--use_plane', action='store_true', help='Use support relation in input.')
+parser.add_argument('--get_data', action='store_true', help='Use support relation in input.')
 parser.add_argument('--use_sunrgbd_v2', action='store_true', help='Use V2 box labels for SUN RGB-D dataset')
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
 parser.add_argument('--dump_results', action='store_true', help='Dump results.')
@@ -152,6 +156,9 @@ num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1
 
 if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet
+elif FLAGS.model == 'planenet':
+    Detector = MODEL.PlaneNet
+    num_input_channel += 4
 else:
     Detector = MODEL.VoteNet
 
@@ -223,19 +230,23 @@ def train_one_epoch():
     net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for key in batch_data_label:
-            batch_data_label[key] = batch_data_label[key].to(device)
+            if 'name' not in key:
+                batch_data_label[key] = batch_data_label[key].to(device)
 
         # Forward pass
         optimizer.zero_grad()
-        inputs = {'point_clouds': batch_data_label['point_clouds']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
         end_points = {}
-        end_points['use_support'] = FLAGS.use_support
+        end_points['use_objcue'] = FLAGS.use_objcue
+        end_points['use_plane'] = FLAGS.use_plane
         end_points = net(inputs, end_points)
-        
+
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
+        if FLAGS.get_data == True:
+            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
         optimizer.step()
@@ -264,19 +275,23 @@ def evaluate_one_epoch():
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
         for key in batch_data_label:
-            batch_data_label[key] = batch_data_label[key].to(device)
+            if 'name' not in key:
+                batch_data_label[key] = batch_data_label[key].to(device)
         
         # Forward pass
-        inputs = {'point_clouds': batch_data_label['point_clouds']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
         with torch.no_grad():
             end_points = {}
-            end_points['use_support'] = FLAGS.use_support
+            end_points['use_objcue'] = FLAGS.use_objcue
+            end_points['use_plane'] = FLAGS.use_plane
             end_points = net(inputs, end_points)
 
         # Compute loss
         for key in batch_data_label:
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
+        if FLAGS.get_data == True:
+            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
 
         # Accumulate statistics and print out
@@ -285,13 +300,16 @@ def evaluate_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
-        if FLAGS.dump_results and batch_idx == 0 and EPOCH_CNT %10 == 0:
-            MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
+        if FLAGS.dump_results and batch_idx == 0:# and EPOCH_CNT %10 == 0:
+            if FLAGS.use_plane:
+                dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
+            else:
+                dump_results(end_points, DUMP_DIR, DATASET_CONFIG)
 
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
@@ -312,7 +330,11 @@ def train(start_epoch):
     global EPOCH_CNT 
     min_loss = 1e10
     loss = 0
-    for epoch in range(start_epoch, MAX_EPOCH):
+    local_epoch = MAX_EPOCH 
+    if FLAGS.get_data == True:
+        local_epoch = start_epoch + 1
+        #import pdb;pdb.set_trace()
+    for epoch in range(start_epoch, local_epoch):
         EPOCH_CNT = epoch
         log_string('**** EPOCH %03d ****' % (epoch))
         log_string('Current learning rate: %f'%(get_current_lr(epoch)))
@@ -322,7 +344,7 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
         save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1

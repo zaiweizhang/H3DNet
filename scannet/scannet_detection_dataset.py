@@ -24,6 +24,8 @@ from model_util_scannet import ScannetDatasetConfig
 from scipy.optimize import linear_sum_assignment
 from scipy.optimize import leastsq
 
+from scipy.cluster.vq import vq, kmeans, whiten
+
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 100#64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
@@ -101,7 +103,7 @@ def find_idx(targetbb, selected_centers, selected_centers_support, selected_cent
 class ScannetDetectionDataset(Dataset):
        
     def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, augment=False):
+                 use_color=False, use_height=False, augment=False, vsize=0.05, center_dev=2, corner_dev=1, use_tsdf=1, center_reduce=0, corner_reduce=1):
 
         self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
         all_scan_names = list(set([os.path.basename(x)[0:12] \
@@ -127,7 +129,15 @@ class ScannetDetectionDataset(Dataset):
         self.use_color = use_color        
         self.use_height = use_height
         self.augment = augment
-       
+
+        ### Vox parameters
+        self.vsize = vsize
+        self.center_dev = center_dev
+        self.corner_dev = corner_dev
+        self.center_reduce = center_reduce
+        self.corner_reduce = corner_reduce
+        self.use_tsdf = use_tsdf
+        
     def __len__(self):
         return len(self.scan_names)
 
@@ -172,7 +182,6 @@ class ScannetDetectionDataset(Dataset):
             floor_height = np.percentile(point_cloud[:,2],0.99)
             height = point_cloud[:,2] - floor_height
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) 
-            
         # ------------------------------- LABELS ------------------------------        
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
         target_bboxes_mask = np.zeros((MAX_NUM_OBJ))    
@@ -227,6 +236,7 @@ class ScannetDetectionDataset(Dataset):
         point_votes = np.zeros([self.num_points, 3])
         point_votes_corner = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
+        point_sem_label = np.zeros(self.num_points)
         
         ### Plane Patches
         plane_label = np.zeros([self.num_points, 3+4])
@@ -270,7 +280,8 @@ class ScannetDetectionDataset(Dataset):
                 
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
-
+                point_sem_label[ind] = meta[-1]
+                
                 xtemp = np.stack([x]*len(corners))
                 dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
                 sel_corner = np.argmin(dist, 0)
@@ -291,33 +302,90 @@ class ScannetDetectionDataset(Dataset):
                 plane_ind = []
                 for p in planes:
                     if p > 0:
-                        plane_ind.append(np.where(plane_vertices == p)[0])
+                        temp_ind = np.where(plane_indicator == p)[0]
+                        if len(temp_ind) > 10:
+                            plane_ind.append(ind[temp_ind])
                 if len(plane_ind) > 0:
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
-                    plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4] / np.expand_dims(plane_vertices[plane_ind,3], -1)
+                    plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4] #/ np.expand_dims(plane_vertices[plane_ind,3], -1)
                     plane_lower = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
-                    plane_upper = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[1], corners[3], corners[5], corners[7]]).T))[0]
-                    plane_left = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
-                    plane_right = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[4], corners[5], corners[6], corners[7]]).T))[0]
-                    plane_front = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
-                    plane_back = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[2], corners[3], corners[6], corners[7]]).T))[0]
-
-                    plane_votes_upper[plane_ind,:] = plane_upper / plane_upper[-1]
-                    plane_votes_lower[plane_ind,:] = plane_lower / plane_lower[-1]
-                    plane_votes_front[plane_ind,:] = plane_front / plane_front[-1]
-                    plane_votes_back[plane_ind,:] = plane_back / plane_back[-1]
-                    plane_votes_left[plane_ind,:] = plane_left / plane_left[-1]
-                    plane_votes_right[plane_ind,:] = plane_right / plane_right[-1]
-                    #import pdb;pdb.set_trace()
+                    #plane_upper = leastsq(residuals, plane_lower, args=(None, np.array([corners[1], corners[3], corners[5], corners[7]]).T))[0]
+                    para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
+                    newd = np.sum(para_points * plane_lower[:3], 1)
+                    plane_upper = np.concatenate([plane_lower[:3], np.array([-np.mean(newd)])], 0)
                     
-        obj_meta = np.stack(obj_meta, 0)
+                    plane_left = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
+                    para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
+                    newd = np.sum(para_points * plane_left[:3], 1)
+                    plane_right = np.concatenate([plane_left[:3], np.array([-np.mean(newd)])], 0)
+                    #plane_right = leastsq(residuals, plane_left, args=(None, np.array([corners[4], corners[5], corners[6], corners[7]]).T))[0]
+                    plane_front = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                    para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
+                    newd = np.sum(para_points * plane_front[:3], 1)
+                    plane_back = np.concatenate([plane_front[:3], np.array([-np.mean(newd)])], 0)
+                    #plane_back = leastsq(residuals, plane_front, args=(None, np.array([corners[2], corners[3], corners[6], corners[7]]).T))[0]
 
+                    plane_votes_upper[plane_ind,:] = plane_upper# / plane_upper[-1]
+                    plane_votes_lower[plane_ind,:] = plane_lower# / plane_lower[-1]
+                    plane_votes_front[plane_ind,:] = plane_front# / plane_front[-1]
+                    plane_votes_back[plane_ind,:] = plane_back# / plane_back[-1]
+                    plane_votes_left[plane_ind,:] = plane_left# / plane_left[-1]
+                    plane_votes_right[plane_ind,:] = plane_right# / plane_right[-1]
+                    #import pdb;pdb.set_trace()
+                    '''
+                    xyz = np.array([corners[2], corners[3], corners[6], corners[7]])
+                    pc_util.write_ply_label(point_cloud, np.zeros(point_cloud.shape[0]), 'just_plane_1.ply', 1)
+                    pc_util.write_ply_label(xyz, np.zeros(xyz.shape[0]), 'just_plane_2.ply', 1)
+                    new_xyz = np.array([corners[0], corners[1], corners[4], corners[5]])
+                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_3.ply', 1)
+                    import pdb;pdb.set_trace()
+                    xy = xyz[:,:2]
+                    z = -(np.sum(plane_back[:2]*xy, 1) + plane_back[3]) / plane_back[2]
+                    new_xyz = np.concatenate([xy,np.expand_dims(z, -1)], 1)
+                    
+                    pc_util.write_ply_label(point_cloud, np.zeros(point_cloud.shape[0]), 'just_plane_1.ply', 1)
+                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_2.ply', 1)
+
+                    choice = np.random.choice(point_cloud.shape[0], 1000, replace=False)
+                    ### get z
+                    xy = point_cloud[choice,:2]
+                    z = -(np.sum(plane_back[:2]*xy, 1) + plane_back[3]) / plane_back[2]
+                    new_xyz = np.concatenate([xy,np.expand_dims(z, -1)], 1)
+                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_3.ply', 1)
+                    import pdb;pdb.set_trace()
+                    '''
+                    '''
+                    import pdb;pdb.set_trace()
+                    viz_plane(np.concatenate([point_cloud[:,:3], plane_vertices[:,:4]], 1), plane_label_mask,name=str(i_example)+'plane')
+                    cmap = viz_plane(np.concatenate([point_cloud[:,:3], plane_votes_upper], 1), plane_label_mask,name=str(i_example)+'plane_oneside')
+                    import pdb;pdb.set_trace()
+                    '''
+        obj_meta = np.stack(obj_meta, 0)
+        
         num_instance = obj_meta.shape[0]
         target_bboxes_mask[0:num_instance] = 1
         target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
         point_votes_corner = np.tile(point_votes_corner, (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_front = np.tile(plane_votes_front[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_front = np.tile(np.expand_dims(plane_votes_front[:,3], -1), (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_back = np.tile(plane_votes_back[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_back = np.tile(np.expand_dims(plane_votes_back[:,3], -1), (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_lower = np.tile(plane_votes_lower[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_lower = np.tile(np.expand_dims(plane_votes_lower[:,3], -1), (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_upper = np.tile(plane_votes_upper[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_upper = np.tile(np.expand_dims(plane_votes_upper[:,3], -1), (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_left = np.tile(plane_votes_left[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_left = np.tile(np.expand_dims(plane_votes_left[:,3], -1), (1, 3)) # make 3 votes identical
+
+        plane_votes_rot_right = np.tile(plane_votes_right[:,:3], (1, 3)) # make 3 votes identical
+        plane_votes_off_right = np.tile(np.expand_dims(plane_votes_right[:,3], -1), (1, 3)) # make 3 votes identical
         
         class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
         # NOTE: set size class as semantic class. Consider use size2class.
@@ -340,24 +408,37 @@ class ScannetDetectionDataset(Dataset):
         target_bboxes_semcls[0:num_instance] = \
             [DC.nyu40id2class[x] for x in obj_meta[:,-1][0:obj_meta.shape[0]]]                
         ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
+        ret_dict['point_sem_cls_label'] = point_sem_label.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
         ret_dict['vote_label'] = point_votes.astype(np.float32)
         ret_dict['vote_label_corner'] = point_votes_corner.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
 
-        ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices], 1).astype(np.float32)
+        ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices[:,:4]], 1).astype(np.float32)
         ret_dict['plane_label_mask'] = plane_label_mask.astype(np.float32)
-        ret_dict['plane_votes_front'] = plane_votes_front.astype(np.float32)
-        ret_dict['plane_votes_back'] = plane_votes_back.astype(np.float32)
-        ret_dict['plane_votes_left'] = plane_votes_left.astype(np.float32)
-        ret_dict['plane_votes_right'] = plane_votes_right.astype(np.float32)
-        ret_dict['plane_votes_lower'] = plane_votes_lower.astype(np.float32)
-        ret_dict['plane_votes_upper'] = plane_votes_upper.astype(np.float32)
+        ret_dict['plane_votes_rot_front'] = plane_votes_rot_front.astype(np.float32)
+        ret_dict['plane_votes_off_front'] = plane_votes_off_front.astype(np.float32)
+        
+        ret_dict['plane_votes_rot_back'] = plane_votes_rot_back.astype(np.float32)
+        ret_dict['plane_votes_off_back'] = plane_votes_off_back.astype(np.float32)
+        
+        ret_dict['plane_votes_rot_left'] = plane_votes_rot_left.astype(np.float32)
+        ret_dict['plane_votes_off_left'] = plane_votes_off_left.astype(np.float32)
+        
+        ret_dict['plane_votes_rot_right'] = plane_votes_rot_right.astype(np.float32)
+        ret_dict['plane_votes_off_right'] = plane_votes_off_right.astype(np.float32)
+        
+        ret_dict['plane_votes_rot_lower'] = plane_votes_rot_lower.astype(np.float32)
+        ret_dict['plane_votes_off_lower'] = plane_votes_off_lower.astype(np.float32)
+        
+        ret_dict['plane_votes_rot_upper'] = plane_votes_rot_upper.astype(np.float32)
+        ret_dict['plane_votes_off_upper'] = plane_votes_off_upper.astype(np.float32)
         
         ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
         ret_dict['pcl_color'] = pcl_color
         ret_dict['num_instance'] = num_instance
+        ret_dict['scan_name'] = scan_name
         
         return ret_dict
         
@@ -379,7 +460,61 @@ def viz_plane(point_planes, point_planes_mask, name=''):
     """
     inds = (point_planes_mask==1)
     pc_plane = point_planes[inds,:]
-    pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,3:], 'pc_obj_planes{}.ply'.format(name))
+    cmap = pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,3:], 'pc_obj_planes{}.ply'.format(name))
+    return cmap
+
+def viz_plane_perside(point_planes, point_planes_mask, name=''):
+    """ Visualize point votes and point votes mask labels
+    pc: (N,3 or 6), point_votes: (N,9), point_votes_mask: (N,)
+    """
+    inds = (point_planes_mask==1)
+    pc_plane = point_planes[inds,:]
+
+    #whitened = whiten(pc_plane[:,3:7])
+    '''
+    planes = {}
+
+    count = 0
+    for plane in pc_plane[:,3:7]:
+        check = 1
+        for k in planes:
+            if np.array_equal(planes[k], plane):
+                check *= 0
+                break
+        if check == 1:
+            planes[count] = plane
+            count += 1
+    '''
+    planes = kmeans(pc_plane[:,3:7], 40)[0] ### Get 40 planes
+    #temp_planes = []
+    #for k in planes:
+    #    temp_planes.append(planes[k])
+    #planes = np.stack(temp_planes)
+    #import pdb;pdb.set_trace()
+    
+    final_scene = pc_plane[:,:3]
+    final_labels = np.zeros(pc_plane.shape[0])
+    cur_scene = pc_plane[:,:3]
+    count = 0
+    for j in range(len(planes)):
+        cur_plane = planes[j,:]#np.stack([planes[j,:]]*cur_scene.shape[0])
+        if np.sum(cur_plane) == 0:
+            continue
+        ### Sample 1000 points
+        choice = np.random.choice(cur_scene.shape[0], 500, replace=False)
+        ### get z
+        xy = cur_scene[choice,:2]
+        z = -(np.sum(planes[j,:2]*xy, 1) + planes[j,3]) / planes[j,2]
+        new_xyz = np.concatenate([xy,np.expand_dims(z, -1)], 1)
+        #pc_util.write_ply_label(np.concatenate([final_scene, new_xyz], 0), np.concatenate([final_labels, np.ones(500)*(count+1)], 0), 'just_plane_%d.ply' % (j), count+2)
+        #import pdb;pdb.set_trace()
+        final_scene = np.concatenate([final_scene, new_xyz], 0)
+        final_labels = np.concatenate([final_labels, np.ones(500)*(count+1)], 0)
+        count += 1
+    #pc_util.write_ply_label(cur_scene, np.squeeze(labels), '%d_plane_visual.ply' % i, len(planes))
+    #import pdb;pdb.set_trace()
+    pc_util.write_ply_label(final_scene, final_labels, 'pc_obj_planes_oneside{}.ply'.format(name), count+1)
+    #cmap = pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,3:], 'pc_obj_planes{}.ply'.format(name))
     
 def viz_obb(pc, label, mask, angle_classes, angle_residuals,
     size_classes, size_residuals, name=''):
@@ -412,13 +547,19 @@ if __name__=='__main__':
     dset = ScannetDetectionDataset(use_height=True, num_points=40000)
     for i_example in range(1000):
         example = dset.__getitem__(i_example)
-        pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))    
+        pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
+        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'], 'pc_sem_{}.ply'.format(str(i_example)),  38)
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
         viz_votes(example['point_clouds'], example['vote_label_corner'],
                   example['vote_label_mask'],name=str(i_example)+'corner')
         viz_plane(example['plane_label'],
                   example['plane_label_mask'],name=str(i_example)+'plane')
+        #viz_plane(np.concatenate([example['plane_label'][:,:3], example['plane_votes_rot_upper']], 1),
+        #          example['plane_label_mask'],name=str(i_example)+'plane_oneside')
+        viz_plane_perside(np.concatenate([example['plane_label'][:,:3], np.concatenate([example['plane_votes_rot_upper'][:,:3], np.expand_dims(example['plane_votes_off_upper'][:,0], -1)], 1)], 1),
+                  example['plane_label_mask'],name=str(i_example)+'plane_oneside')
+        
         #viz_votes(example['point_clouds'], example['vote_label_support_middle'],example['vote_label_mask_support'],name=str(i_example)+'support_middle')
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_middle'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_middle')
         #viz_votes(example['point_clouds'], example['vote_label_support_offset'],example['vote_label_mask_support'],name=str(i_example)+'support_offset')
