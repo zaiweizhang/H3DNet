@@ -155,14 +155,28 @@ def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.
   for i in range(num_pt):
     pt_feature[i] = fea[:, pt[i,0], pt[i,1], pt[i,2]]
   return pt_feature
-# to do 
-def pt_to_voxel_feature(pt,vs=0.05, reduce_factor=16, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+
+def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+  pt = pt_fea[:,0:3] #xyz
   pt = torch.clamp(pt, xymin, xymax-0.1)
   pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
   pt[:,0] = pt[:,0]-xymin
   pt[:,1] = pt[:,1]-xymin
   pt[:,2] = pt[:,2]-zmin
   new_vs = vs*reduce_factor
+  vxy=int((xymax-xymin)/new_vs)
+  vz=int((zmax-xymin)/new_vs)
+  pt=(pt/new_vs).int()
+  pt = torch.clamp(pt, 0,vxy-1)
+  pt[:,2] = torch.clamp(pt[:,2], 0, vz-1)  
+  feature_dim = pt_fea.shape[1]-3
+  
+  vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+  for i in range(pt_fea.shape[0]):
+    vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+  return vol_fea
+    
+    
   
  
 def compute_iou(v1, v2, thres=0.3):
