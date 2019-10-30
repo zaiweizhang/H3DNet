@@ -2,8 +2,7 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
-
-# Point cloud IO
+ 
 import numpy as np
 import random
 import torch
@@ -11,6 +10,8 @@ from plyfile import PlyData, PlyElement
 import matplotlib.cm as cm
 import matplotlib.pyplot as pyplot
 import struct
+
+choose_classes = np.array([3,4,5,6,7,8,9,10,11,12,14,16,24,28,33,34,36,39])
 
 def save_results(points, pred, target, outf, epoch, i, names=None):
     points = points.cpu().numpy()
@@ -35,38 +36,38 @@ def save_results(points, pred, target, outf, epoch, i, names=None):
             write_ply(target[k*4], os.path.join(out_dir, "%d_%s_target.ply"%(k,names[k])))
     print("save results")
     
-def save_vox_results(vox, center, pred, outfolder, epoch, i, mode):
+def save_vox_results(vox, center, pred, outfolder, epoch, i, mode, num_classes=2):
     vox = vox.cpu().numpy()[0,0]
-    center = center.cpu().numpy()[0,0]
-    pred = pred.detach().cpu().numpy()[0,0]
-    
+    center = center.cpu().numpy()[0, 0]
+    pred =pred.detach().cpu().numpy()[0,0]
     pt_vox = volume_to_point_cloud(vox)
-    pt_center = volume_to_point_cloud(center, thres=0.6)
-    pred_center = volume_to_point_cloud(pred, thres=0.6)
-    pred_center2 = volume_to_point_cloud(pred, thres=0.8)
-
+    pt_center = volume_to_point_cloud(center, thres=0.3)
+    pred_center = volume_to_point_cloud(pred, thres=0.3)
+    # pt_center, center_label = multichannel_volume_to_point_cloud(center)
+    # pred_center, pred_center_label = multichannel_volume_to_point_cloud(pred)
+    
     num_pt_vox = pt_vox.shape[0]
     num_pt_center = pt_center.shape[0]
     num_pred_center = pred_center.shape[0]
-    num_pred_center2 = pred_center2.shape[0]
-    print ('num_pred'+mode,num_pred_center)
-    print ('num_pred2'+mode, num_pred_center2)
-    print ('num_gt'+mode, num_pt_center)
-    
+    print ('pred_'+mode,num_pred_center)
+    print ('gt_'+mode, num_pt_center)
     pt_vox_center = np.concatenate((pt_vox, pt_center),axis=0)
     pred_vox_center = np.concatenate((pt_vox, pred_center),axis=0)
     label = np.zeros(num_pt_center+num_pt_vox)
     label[-num_pt_center:]=1
     label_pred = np.zeros(num_pred_center+num_pt_vox)
     label_pred[-num_pred_center:]=1
+    write_ply_color(pt_vox_center, label, os.path.join(outfolder,'{}_{}_{}.ply'.format(epoch, i, mode)), num_classes=num_classes)  
+    write_ply_color(pred_vox_center, label_pred, os.path.join(outfolder,'{}_{}_{}_pred.ply'.format(epoch, i, mode)), num_classes=num_classes)  
+
+def save_sem_results(sem_vox, pred, outfolder, epoch, i, mode, num_classes=38):
+  sem_vox = sem_vox.cpu().numpy()[0]
+  pred =pred.detach().cpu().numpy()[0]
+  pred_sem, pred_sem_label = multichannel_volume_to_point_cloud(pred)
+  sem_pt, sem_pt_label = volume_to_point_cloud_color(sem_vox)
+  write_ply_color(sem_pt, sem_pt_label, os.path.join(outfolder,'{}_{}_{}_sem_gt.ply'.format(epoch, i, mode)), num_classes=num_classes)
+  write_ply_color(pred_sem, pred_sem_label, os.path.join(outfolder,'{}_{}_{}_sem_pred.ply'.format(epoch, i, mode)), num_classes=num_classes)
     
-   
-    # write_ply(pt_vox, os.path.join(outfolder, '{}_{}_{}_vox.ply'.format(epoch, i, mode)))        
-    # write_ply(pred_center, os.path.join(outfolder, '{}_{}_pred_center.ply'.format(epoch, i)))        
-    write_ply_color(pt_vox_center, label, os.path.join(outfolder,'{}_{}_{}.ply'.format(epoch, i, mode)))  
-    write_ply_color(pred_vox_center, label_pred, os.path.join(outfolder,'{}_{}_{}_pred.ply'.format(epoch, i, mode)))  
-    # write_ply_color(pred_vox_center2, label_pred2, os.path.join(outfolder,'{}_{}_{}_pred2.ply'.format(epoch, i, mode)))  
-  
 def save_angle_results(vox, center, pred_center, angle, pred_angle, outfolder, epoch, i, mode):
     vox = vox.cpu().numpy()[0,0]
     center = center.cpu().numpy()[0,0]
@@ -118,8 +119,53 @@ def process_results(vox, center, scene_name, out_path, pt_thres=0.8):
   pt_vox_center = np.concatenate((pt_vox, pt_center),axis=0)
   label = np.zeros(num_pt_center+num_pt_vox)
   label[-num_pt_center:-1]=1
+   
+def voxel_to_pt_descriptor_numpy(fea, pt,vs=0.025, reduce_factor=16, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+  # fea: [VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor, F]
+  # pt: [N, 3]
+  # first translate pt to V/reduce_factor scale, then registrate to voxel grid
+  fea = np.transpose(fea, (1,2,3,0))
+  pt = np.clip(pt, xymin, xymax-0.1)
+  pt[:,2] = np.clip(pt[:,2], zmin, zmax-0.1)
+  pt[:,0] = pt[:,0]-xymin
+  pt[:,1] = pt[:,1]-xymin
+  pt[:,2] = pt[:,2]-zmin
+  new_vs = vs*reduce_factor
+  pt = (pt/new_vs).astype(np.int32)
+  print(pt.max(), pt.min())
+  num_pt = pt.shape[0]
+  pt_feature = np.zeros((num_pt, fea.shape[3]))
+  for i in range(num_pt):
+    pt_feature[i] = fea[pt[i,0], pt[i,1], pt[i,2]]
+  return pt_feature  
+
+def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+  # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
+  # pt: [N, 3]
+  # first translate pt to V/reduce_factor scale, then registrate to voxel grid
+  pt = torch.clamp(pt, xymin, xymax-0.1)
+  pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+  pt[:,0] = pt[:,0]-xymin
+  pt[:,1] = pt[:,1]-xymin
+  pt[:,2] = pt[:,2]-zmin
+  new_vs = vs*reduce_factor
+  pt = (pt/new_vs).int()
+  num_pt = pt.shape[0]
+  pt_feature = torch.zeros((num_pt, fea.shape[0]))
+  for i in range(num_pt):
+    pt_feature[i] = fea[:, pt[i,0], pt[i,1], pt[i,2]]
+  return pt_feature
+# to do 
+def pt_to_voxel_feature(pt,vs=0.05, reduce_factor=16, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+  pt = torch.clamp(pt, xymin, xymax-0.1)
+  pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+  pt[:,0] = pt[:,0]-xymin
+  pt[:,1] = pt[:,1]-xymin
+  pt[:,2] = pt[:,2]-zmin
+  new_vs = vs*reduce_factor
   
-def compute_iou(v1, v2, thres=0.5):
+ 
+def compute_iou(v1, v2, thres=0.3):
   bv1 = (v1>thres).float()
   bv2 = (v2>thres).float()
   iou=0.0
@@ -195,16 +241,29 @@ def volume_to_point_cloud_color(vol, mini=0):
   for a in range(vx):
     for b in range(vy):
       for c in range(vz):
-        if vol[a, b, c]!=0.0:
+        if vol[a, b, c]>0.05:
           points.append(np.array([a, b, c]))
           labels.append(vol[a,b,c])
-  labels = (np.array(labels, np.float32)-mini)*10
+  labels = (np.array(labels, np.float32)-mini)
   
   if len(points) == 0:
     return np.zeros((0, 3))
   points = np.vstack(points)
   
   return points, labels
+
+def multichannel_volume_to_point_cloud(vol):
+  num_classes = vol.shape[0]
+  pts=np.zeros((0,3))
+  pt_labels=np.zeros(0)
+  
+  for i in range(1, num_classes):
+    pt_i = volume_to_point_cloud(vol[i])
+    pts = np.concatenate((pts, pt_i), axis=0)
+    pt_labels = np.concatenate((pt_labels, np.ones(pt_i.shape[0])*i))
+  pts = np.array(pts, np.float32)
+  pt_labels=np.array(pt_labels, np.int32)
+  return pts, pt_labels   
 
 def volume_pt_to_pt(vpt, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   pt = vpt*vs
@@ -234,8 +293,10 @@ def process_bbx(bbx, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   new_bbx[:,3:6] = new_scale
   return new_bbx
 
-def get_corner(bbx, vox, select=True, select_thres=3):
+def get_corner(bbx, vox=None, select=False, select_thres=3, vs=0.06,xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
   corners = np.zeros((bbx.shape[0], 8 ,3))
+  vxy = int(xymax-xymin)/vs
+  vz = int(zmax-zmin)/vs
   for i in range(bbx.shape[0]):
     center = bbx[i, 0:3]
     scale = bbx[i, 3:6]/2.0
@@ -248,8 +309,13 @@ def get_corner(bbx, vox, select=True, select_thres=3):
     corners[i,6] = [center[0]+scale[0], center[1]+scale[1], center[2]-scale[2]]
     corners[i,7] = [center[0]+scale[0], center[1]+scale[1], center[2]+scale[2]]
   corners = np.reshape(corners, (-1, 3))
-  corners = np.clip(corners, 0, vox.shape[0]-1)
-  corners[:,2] = np.clip(corners[:,2], 0, vox.shape[2]-1)
+  crop_ids = []
+  for i in range(corners.shape[0]):
+    if corners[i,0]>-1 and corners[i,0]<vxy and corners[i,1]>-1 and corners[i,1]<vxy and corners[i,2]>-1 and corners[i,2]<vz:
+      crop_ids.append(i)
+  corners = corners[crop_ids]      
+  # corners = np.clip(corners, 0, vox.shape[0]-1)
+  # corners[:,2] = np.clip(corners[:,2], 0, vox.shape[2]-1)
   
   if select:
     vox = (vox>0.05).astype(np.float32)
@@ -298,24 +364,32 @@ def params2bbox(bbx):
         center + vx + vy - vz, center + vx + vy + vz])
     return bbox
 
-def get_oriented_corners(oriented_bbx, vox, select=True, select_thres=5,vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+def get_oriented_corners(oriented_bbx, select=False, select_thres=5,vs=0.05, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32,multiclass=False,):
   # corners in origin scale
   corners = np.zeros((oriented_bbx.shape[0], 8,3))
+  sem_labels = np.zeros((oriented_bbx.shape[0], 8))
   for i in range(oriented_bbx.shape[0]):
     corners[i] = params2bbox(oriented_bbx[i])
-  
+    sem_labels[i] = np.ones(8)*int(oriented_bbx[i,-1]-1)
+  sem_labels = np.reshape(sem_labels, (-1))
   # rescale to voxel space
   corners = np.reshape(corners, (-1, 3)) 
+  crop_ids= []
+  for i in range(corners.shape[0]):
+    if corners[i,0]>xymin and corners[i,0]<xymax and corners[i,1]>xymin and corners[i,1]<xymax and corners[i,2]>zmin and corners[i,2]<zmax:
+      crop_ids.append(i)
+  corners=corners[crop_ids]
+  sem_labels=sem_labels[crop_ids]
   corners = np.clip(corners, xymin, xymax)
   corners[:,2] = np.clip(corners[:,2], zmin, zmax)
   corners[:,0] = corners[:,0]-xymin
   corners[:,1] = corners[:,1]-xymin
   corners[:,2] = corners[:,2]-zmin
   corners = corners/vs
-  vxy = int((xymax-xymin)/vs)
-  vz = int((zmax-zmin)/vs)
   
   if select:
+    vxy = int((xymax-xymin)/vs)
+    vz = int((zmax-zmin)/vs)
     vox = (vox>0.05).astype(np.float32)
     max_xy = vox.shape[0]-1
     max_z = vox.shape[2]-1
@@ -332,15 +406,18 @@ def get_oriented_corners(oriented_bbx, vox, select=True, select_thres=5,vs=0.025
       if np.sum(crop_vox)>2:
         select_ids.append(j)
     corners = corners[select_ids]
-  return corners
+  if multiclass:
+    return corners, sem_labels
+  else:
+    return corners
 
-def gaussian_3d(x_mean, y_mean, z_mean, vxy, vz, dev=4.0):
+def gaussian_3d(x_mean, y_mean, z_mean, vxy, vz, dev=2.0):
   x, y, z = np.meshgrid(np.arange(vxy), np.arange(vxy), np.arange(vz))
   #z=(1.0/(2.0*np.pi*dev*dev))*np.exp(-((x-x_mean)**2+ (y-y_mean)**2)/(2.0*dev**2))
   m=np.exp(-((x-x_mean)**2 + (y-y_mean)**2+(z-z_mean)**2)/(2.0*dev**2))
   return m
-  
-def point_to_volume_gaussion(points, dev=4.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+
+def point_to_volume_gaussion(points, dev=2.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   vxy = int((xymax-xymin)/vs)
   vz = int((zmax-zmin)/vs)
   vol=np.zeros((vxy,vxy,vz), dtype=np.float32)
@@ -353,7 +430,20 @@ def point_to_volume_gaussion(points, dev=4.0, vs=0.025, xymin=-3.2, xymax=3.2, z
   # vol[locations[:, 0], locations[:, 1], locations[:, 2]] = 1.0
   return vol
 
-def center_to_volume_gaussion(bbx, dev=4.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+def point_to_volume_gaussion_multiclass(points, labels, num_classes=37, dev=2.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  vol=np.zeros((num_classes, vxy,vxy,vz), dtype=np.float32)
+  # print 'localcations', locations
+  locations = points.astype(int)
+  for i in range(points.shape[0]):
+    if locations[i,0]==64 and locations[i,1]==64:
+      continue
+    vol[int(labels[i]-1)]+=gaussian_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
+  # vol[locations[:, 0], locations[:, 1], locations[:, 2]] = 1.0
+  return vol
+
+def center_to_volume_gaussion(bbx, dev=2.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   points = bbx[:,0:3]
   angle = bbx[:, 6]
   vxy = int((xymax-xymin)/vs)
@@ -367,20 +457,47 @@ def center_to_volume_gaussion(bbx, dev=4.0, vs=0.025, xymin=-3.2, xymax=3.2, zmi
   # locations[:,2] = np.clip(locations[:,2], zmin/vs, zmax/vs)
   
   for i in range(points.shape[0]):
-    if locations[i,0]==64:
-      print(locations[i])
+    if locations[i,0]==64 and locations[i,1]==64:
+      continue
+    # print(locations[i])
     vol+=gaussian_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
     #v_angle+=cube_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
-    x1 = int(np.maximum(0, locations[i,0]-th))
-    y1 = int(np.maximum(0, locations[i,1]-th))
-    z1 = int(np.maximum(0, locations[i,2]-th))
-    x2 = int(np.minimum(vxy-1, locations[i,0]+th))
-    y2 = int(np.minimum(vxy-1, locations[i,1]+th))
-    z2 = int(np.minimum(vz-1, locations[i,2]+th))
-    v_angle[x1:x2, y1:y2, z1:z2] = angle[i]
-    
+    # x1 = int(np.maximum(0, locations[i,0]-th))
+    # y1 = int(np.maximum(0, locations[i,1]-th))
+    # z1 = int(np.maximum(0, locations[i,2]-th))
+    # x2 = int(np.minimum(vxy-1, locations[i,0]+th))
+    # y2 = int(np.minimum(vxy-1, locations[i,1]+th))
+    # z2 = int(np.minimum(vz-1, locations[i,2]+th))
+    # v_angle[x1:x2, y1:y2, z1:z2] = angle[i]
   # vol[locations[:, 0], locations[:, 1], locations[:, 2]] = 1.0
-  return vol, v_angle
+  return vol
+
+def center_to_volume_gaussion_multiclass(bbx, num_classes=37, dev=2.0, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+  points = bbx[:,0:3]
+  angle = bbx[:, 6]
+  sem_label = bbx[:,-1]
+  
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  vol=np.zeros((num_classes, vxy,vxy,vz), dtype=np.float32)
+  # v_angle = np.zeros((vxy,vxy,vz), dtype=np.float32)
+  # th = dev*3
+  locations = points.astype(int)
+  # locations = np.clip(locations, xymin/vs, xymax/vs)
+  # locations[:,2] = np.clip(locations[:,2], zmin/vs, zmax/vs)
+  
+  for i in range(points.shape[0]):
+    if locations[i,0]==64 and locations[i,1]==64 and locations[i,2]==2:
+      continue
+    vol[int(sem_label[i]-1)]+=gaussian_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
+    # x1 = int(np.maximum(0, locations[i,0]-th))
+    # y1 = int(np.maximum(0, locations[i,1]-th))
+    # z1 = int(np.maximum(0, locations[i,2]-th))
+    # x2 = int(np.minimum(vxy-1, locations[i,0]+th))
+    # y2 = int(np.minimum(vxy-1, locations[i,1]+th))
+    # z2 = int(np.minimum(vz-1, locations[i,2]+th))
+    # v_angle[x1:x2, y1:y2, z1:z2] = angle[i]
+  return vol
 
 def point_cloud_to_value_scene(pred, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   pred = np.clip(pred, xymin, xymax)
@@ -410,10 +527,31 @@ def point_cloud_to_value_scene(pred, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1,
     vox[high[i,0], high[i,1], high[i,2]]+=f[i,0]*f[i,1]*f[i,2]
   return vox
 
-# ----------------------------------------
-# Point cloud IO
-# ----------------------------------------
+def crop_point_cloud(pt,xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  crop_ids=[]
+  for i in range(pt.shape[0]):
+    if pt[i,0]>xymin and pt[i,0]<xymax and pt[i,1]>xymin and pt[i,1]<xymax and pt[i,2]>zmin and pt[i,2]<zmax:
+      crop_ids.append(i)
+  pt = pt[crop_ids]
+  return pt, crop_ids
 
+def point_cloud_to_sem_vox(pt, sem_label, vs=0.06,xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  pt[:,0]=pt[:,0]-xymin
+  pt[:,1]=pt[:,1]-xymin
+  pt[:,2]=pt[:,2]-zmin
+  pt=pt/vs
+  vxy=int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  pt = np.clip(pt, 0,vxy-1)
+  pt[:,2] = np.clip(pt[:,2], 0,vz-1)
+  vol=np.zeros((vxy,vxy,vz), np.float32)
+  pt = pt.astype(np.int32)
+  for i in range(pt.shape[0]):
+    if sem_label[i] not in choose_classes:
+      continue
+    vol[pt[i,0], pt[i,1], pt[i,2]]=np.argwhere(choose_classes==sem_label[i])[0,0]+1
+  return vol
+     
 def read_tsdf(filename):
   f = open(filename, 'rb')
   fileContent = f.read()
@@ -493,3 +631,38 @@ def write_ply_rgb(points, colors, out_filename, num_classes=None):
         c = colors[i,:]
         fout.write('v %f %f %f %d %d %d\n' % (points[i,0],points[i,1],points[i,2],c[0],c[1],c[2]))
     fout.close()
+
+# def get_oriented_corners(oriented_bbx, vox, select=False, select_thres=5,vs=0.05, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+#   # corners in origin scale
+#   corners = np.zeros((oriented_bbx.shape[0], 8,3))
+#   for i in range(oriented_bbx.shape[0]):
+#     corners[i] = params2bbox(oriented_bbx[i])
+#   # rescale to voxel space
+#   corners = np.reshape(corners, (-1, 3)) 
+#   corners = np.clip(corners, xymin, xymax)
+#   corners[:,2] = np.clip(corners[:,2], zmin, zmax)
+#   corners[:,0] = corners[:,0]-xymin
+#   corners[:,1] = corners[:,1]-xymin
+#   corners[:,2] = corners[:,2]-zmin
+#   corners = corners/vs
+#   vxy = int((xymax-xymin)/vs)
+#   vz = int((zmax-zmin)/vs)
+  
+#   if select:
+#     vox = (vox>0.05).astype(np.float32)
+#     max_xy = vox.shape[0]-1
+#     max_z = vox.shape[2]-1
+#     select_ids = []
+#     th = select_thres
+#     for j in range(corners.shape[0]):
+#       x1 = int(np.maximum(0, corners[j,0]-th))
+#       y1 = int(np.maximum(0, corners[j,1]-th))
+#       z1 = int(np.maximum(0, corners[j,2]-th))
+#       x2 = int(np.minimum(max_xy, corners[j,0]+th))
+#       y2 = int(np.minimum(max_xy, corners[j,1]+th))
+#       z2 = int(np.minimum(max_z, corners[j,2]+th))
+#       crop_vox = vox[x1:x2, y1:y2, z1:z2]
+#       if np.sum(crop_vox)>2:
+#         select_ids.append(j)
+#     corners = corners[select_ids]
+#   return corners
