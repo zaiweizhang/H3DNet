@@ -6,8 +6,8 @@ import torch
 import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
-from dataset2 import ScannetDetectionDataset
-from models.resnet_autoencoder import CenterCornerNet, get_loss 
+from dataset_voxel import ScannetDetectionDataset
+from models.resnet_autoencoder import TwoStreamNet, get_loss 
 from utils.pc_util import compute_iou, save_vox_results
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -26,41 +26,35 @@ parser.add_argument('--encoder_filters', type=int, default=32, help='network cha
 parser.add_argument('--outf', type=str, default='out_bin', help='output folder')
 parser.add_argument('--model', type=str, default='', help='model path')
 # parser.add_argument('--dataroot', type=str, default='/home/bo/data/scannet/new', help="dataset path")
-parser.add_argument('--datapath', type=str, default='/home/bo/data/scannet/new/scannet_train_detection_data', help="dataset path")
+parser.add_argument('--datapath', type=str, default='/home/bo/data/scannet/new2/scannet_train_detection_data', help="dataset path")
 
 # 0.025 model: /home/bo/projects/cvpr2020/detection/voxel/out_corners/out_0.025000_tsdf1_select1_reduce1/dev_2.000000_9_0.000000_8_100_5_0/seg_model_0.pth
 parser.add_argument('--center_reduce', type=int, default=0)
-parser.add_argument('--corner_reduce', type=int, default=1)
-parser.add_argument('--use_tsdf', type=int, default=1)
-parser.add_argument('--select_corners', type=int, default=1)
-parser.add_argument('--train_corner', type=int, default=1)
-parser.add_argument('--train_center', type=int, default=1)
-parser.add_argument('--train_angle', type=int, default=0)
+parser.add_argument('--corner_reduce', type=int, default=0)
+parser.add_argument('--use_tsdf', type=int, default=0)
+parser.add_argument('--select_corners', type=int, default=0)
+parser.add_argument('--use_18cls', type=int, default=1)
 
 parser.add_argument('--vsize', type=float, default=0.05, help='size of one voxel')
 parser.add_argument('--center_dev', type=float, default=2.0, help='gaussian deviation')
 parser.add_argument('--corner_dev', type=float, default=1.0, help='gaussian deviation')
-parser.add_argument('--wcenter', type=float, default=1, help='weight of center loss')
-parser.add_argument('--wcorner', type=float, default=1, help='weight of corner loss')
+parser.add_argument('--wcenter', type=float, default=3, help='weight of center loss')
+parser.add_argument('--wcorner', type=float, default=2, help='weight of corner loss')
 parser.add_argument('--w9_cen', type=float, default=0, help='weight of center>0.95')
-parser.add_argument('--w8_cen', type=float, default=180, help='weight of center>0.8')
-parser.add_argument('--w5_cen', type=float, default=20, help='weight of center>0.5')
+parser.add_argument('--w8_cen', type=float, default=250, help='weight of center>0.8')
+parser.add_argument('--w5_cen', type=float, default=5, help='weight of center>0.5')
 parser.add_argument('--w9_cor', type=float, default=60, help='weight of corner>0.95')
-parser.add_argument('--w8_cor', type=float, default=80, help='weight of corner>0.8')
+parser.add_argument('--w8_cor', type=float, default=250, help='weight of corner>0.8')
 parser.add_argument('--w5_cor', type=float, default=5, help='weight of corner>0.5')
-parser.add_argument('--xymin', type=float, default=-3.2)
-parser.add_argument('--xymax', type=float, default=3.2)
-parser.add_argument('--zmin', type=float, default=-0.1)
-parser.add_argument('--zmax', type=float, default=2.32)
+parser.add_argument('--xymin', type=float, default=-3.85)
+parser.add_argument('--xymax', type=float, default=3.85)
+parser.add_argument('--zmin', type=float, default=-0.2)
+parser.add_argument('--zmax', type=float, default=2.69)
 # parser.add_argument('--class_choice', type=str, default=None, help="class_choice")
 # parser.add_argument('--feature_transform', action='store_true', help="use feature transform")
 opt = parser.parse_args()
 print(opt)
-opt.dataroot = '/home/bo/data/scannet/new/training_data/vs%s_tsdf%d'%(str(opt.vsize), opt.use_tsdf)
-print(opt.dataroot)
-opt.outf = 'out_center+corner/out_%s_tsdf%d_cenreduce%d+correduce%d/wcenter%d_wcorner%d_cendev%d_9_%d_8_%d_5_%d_cordev%d_9_%d_8_%d_5_%d'%(
-    opt.vsize, opt.use_tsdf, opt.center_reduce, opt.corner_reduce, int(opt.wcenter), int(opt.wcorner), int(opt.center_dev), int(opt.w9_cen), int(opt.w8_cen), 
-    int(opt.w5_cen), int(opt.corner_dev), int(opt.w9_cor), int(opt.w8_cor), int(opt.w5_cor))
+opt.outf = 'out_center+corner/out_%s_tsdf%d_18cls%d/wcenter%d_wcorner%d_cendev%d_9_%d_8_%d_5_%d_cordev%d_9_%d_8_%d_5_%d'%(opt.vsize, opt.use_tsdf, opt.use_18cls, int(opt.wcenter), int(opt.wcorner), int(opt.center_dev), int(opt.w9_cen), int(opt.w8_cen),int(opt.w5_cen), int(opt.corner_dev), int(opt.w9_cor), int(opt.w8_cor), int(opt.w5_cor))
 
 # opt.outf = 'out_dev'+str(opt.dev)+'_'+str(opt.w95)+'_'+str(opt.w8)+'_'+str(opt.w5)+'_'+str(opt.w3)
 
@@ -72,18 +66,12 @@ if opt.gpu!=None:
 # torch.manual_seed(opt.manualSeed)
 
 dataset = ScannetDetectionDataset(
-    data_root=opt.dataroot,
     data_path=opt.datapath,
     split_set='train',
     vsize=opt.vsize,
-    center_reduce=opt.center_reduce,
-    corner_reduce=opt.corner_reduce,
-    center_dev=opt.center_dev,
-    corner_dev=opt.corner_dev,
-    select_corners=opt.select_corners,
     use_tsdf=opt.use_tsdf,
- 
-    )
+    use_18cls=opt.use_18cls)
+
 dataloader = torch.utils.data.DataLoader(
     dataset,
     batch_size=opt.batchSize,
@@ -91,16 +79,11 @@ dataloader = torch.utils.data.DataLoader(
     num_workers=int(opt.workers))
 
 test_dataset = ScannetDetectionDataset(
-    data_root=opt.dataroot,
     data_path=opt.datapath,
     split_set='val',
-    center_reduce=opt.center_reduce,
-    corner_reduce=opt.corner_reduce,
     vsize=opt.vsize,
-    center_dev=opt.center_dev,
-    corner_dev=opt.corner_dev,
-    select_corners=opt.select_corners,
-    augment=False)
+    use_tsdf=opt.use_tsdf,
+    use_18cls=opt.use_18cls)
 
 testdataloader = torch.utils.data.DataLoader(
     test_dataset,
@@ -112,9 +95,7 @@ print(len(dataset), len(test_dataset))
 if not os.path.exists(opt.outf):
     os.makedirs(opt.outf)
 
-blue = lambda x: '\033[94m' + x + '\033[0m'
-
-model = CenterCornerNet(num_filters=opt.num_filters)
+model = TwoStreamNet(num_filters=opt.num_filters, encoder_filters=opt.encoder_filters, c_out_2=1)
 if torch.cuda.device_count() > 1:
   print("Let's use %d GPUs!" % (torch.cuda.device_count()))
   # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
@@ -135,15 +116,15 @@ for epoch in range(opt.nepoch):
     scheduler.step()
     for i, data in enumerate(dataloader):
         vox = data['voxel']
-        corners = data['corners']
+        corners = data['corner']
         center = data['center'] 
         scene_id = data['scan_idx']
         vox, center, corners = vox.cuda(), center.cuda(), corners.cuda()
         optimizer.zero_grad()
         model = model.train()
         pred = model(vox)
-        pred_center = pred['pred_center']
-        pred_corner = pred['pred_corner']
+        pred_center = pred['pred1']
+        pred_corner = pred['pred2']
         
         center_loss = get_loss(pred_center, center, opt.w9_cen, opt.w8_cen, opt.w5_cen)
         corner_loss = get_loss(pred_corner, corners, opt.w9_cor, opt.w8_cor, opt.w5_cor)
@@ -161,14 +142,14 @@ for epoch in range(opt.nepoch):
         if i % 20 == 0:
             j, data = next(enumerate(testdataloader))
             vox = data['voxel']
-            corners = data['corners'] 
+            corners = data['corner'] 
             center = data['center'] 
             scene_id = data['scan_idx']
             vox, center, corners = vox.cuda(), center.cuda(), corners.cuda()
             model = model.eval()
             pred = model(vox)
-            pred_center = pred['pred_center']
-            pred_corner = pred['pred_corner']
+            pred_center = pred['pred1']
+            pred_corner = pred['pred2']
             center_loss = get_loss(pred_center, center, opt.w9_cen, opt.w8_cen, opt.w5_cen)
             corner_loss = get_loss(pred_corner, corners, opt.w9_cor, opt.w8_cor, opt.w5_cor)
             loss = center_loss + corner_loss
@@ -181,10 +162,9 @@ for epoch in range(opt.nepoch):
 
             print('****test****')
             # print('[%d: %d/%d] loss: %f, crossentropy: %f, bce: %f, iou: %f' % (epoch, i, num_batch, loss.item(), crossentropy_loss.item(), bce_loss.item(), iou.cpu().numpy()))
-            print('[center+corner--vsize: %f, cen_dev: %d, cor_dev: %d, tsdf: %d, center reduce: %d]'%(opt.vsize, opt.center_dev, opt.corner_dev, opt.use_tsdf,  opt.center_reduce ))
+            print('[center+corner--vsize: %f, cen_dev: %d, cor_dev: %d, tsdf: %d]'%(opt.vsize, opt.center_dev, opt.corner_dev, opt.use_tsdf))
             print('cen: %d, w9:%d, w8: %d; cor: %d, w9: %d, w8: %d'%(int(opt.wcenter),int(opt.w9_cen), int(opt.w8_cen), int(opt.wcorner), int(opt.w9_cor), int(opt.w8_cor)))
             print('[%d: %d/%d] [loss: %f, center: %f, corner: %f cen iou: %f cor iou: %f]' % (epoch, i, num_batch, loss.item(), center_loss.item(), corner_loss.item(), center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
-
     torch.save(model.state_dict(), '%s/seg_model_%d.pth' % (opt.outf, epoch))
 
     
