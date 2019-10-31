@@ -130,13 +130,25 @@ for i, data in enumerate(dataloader):
         print(scene_name, '0 points')
         continue
     pt_center = get_pred_pts(center, vsize=opt.vsize, eps=opt.eps)
-    print('center', pt_center.shape)
-    sio.savemat(os.path.join(out_path, scene_name+'_center_%s_vox.mat'%(str(opt.vsize))), {'center_vox': pt_center})
     pt_corner = get_pred_pts(corner, vsize=opt.vsize, eps=opt.eps)
-    print('corner', pt_corner.shape)
+    # remove nan
+    print(pt_center.shape, pt_corner.shape)
+    crop_ids = []
+    for i in range(pt_center.shape[0]):
+        if pt_center[i,0]<100:
+          crop_ids.append(i)
+    pt_center = pt_center[crop_ids]  
+    # sio.savemat(os.path.join(pred_path, name+'_center_0.06_vox.mat'), {'center_vox': center})
+    crop_ids=[]
+    for i in range(pt_corner.shape[0]):
+        if pt_corner[i,0]<100:
+            crop_ids.append(i)
+    pt_corner=pt_corner[crop_ids]       
+    print(pt_center.shape, pt_corner.shape)
+    sio.savemat(os.path.join(out_path, scene_name+'_center_%s_vox.mat'%(str(opt.vsize))), {'center_vox': pt_center})
     sio.savemat(os.path.join(out_path, scene_name+'_corner_%s_vox.mat'%(str(opt.vsize))), {'corner_vox': pt_corner})
        
-    if i%20==0:
+    if i%100==0: # optional, visulize for debugging
         pt = np.load(os.path.join(opt.datapath, scene_name+'_vert.npy'))[:,0:3]
         num_pt = pt.shape[0]
         num_pt_center = pt_center.shape[0]
