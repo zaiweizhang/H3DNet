@@ -121,6 +121,18 @@ def process_results(vox, center, scene_name, out_path, pt_thres=0.8):
   label = np.zeros(num_pt_center+num_pt_vox)
   label[-num_pt_center:-1]=1
    
+def get_pred_pts(pt, vsize, eps, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    db = DBSCAN(eps=eps, min_samples=5).fit(pt)
+    labels = np.array(db.labels_)
+    n_labels = len(np.unique(labels))
+    centers = np.zeros((n_labels, 3))
+    for i in range(n_labels):
+        pt_cluster = pt[labels==i]
+        centers[i] = np.mean(pt_cluster, axis=0)
+    # centers = volume_pt_to_pt(centers, vsize, xymin=-3.0, xymax=3.0, zmin=-0.1, zmax=2.5)
+    centers = volume_pt_to_pt(centers, vsize, xymin=xymin, xymax=xymax, zmin=zmin, zmax=zmax)
+    return centers
+  
 def voxel_to_pt_descriptor_numpy(fea, pt,vs=0.025, reduce_factor=16, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
   # fea: [VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor, F]
   # pt: [N, 3]
