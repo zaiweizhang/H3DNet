@@ -165,23 +165,33 @@ def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.
   return pt_feature
 
 def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
-  pt = pt_fea[:,0:3] #xyz
+  B, N, K = pt_fea.shape
+  F = K-3
+  pt = pt_fea[:,:,0:3] #xyz
+  fea = pt_fea[:,:,3:]
   pt = torch.clamp(pt, xymin, xymax-0.1)
-  pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
-  pt[:,0] = pt[:,0]-xymin
-  pt[:,1] = pt[:,1]-xymin
-  pt[:,2] = pt[:,2]-zmin
+  pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
+  pt[:,:,0] = pt[:,:,0]-xymin
+  pt[:,:,1] = pt[:,:,1]-xymin
+  pt[:,:,2] = pt[:,:,2]-zmin
   new_vs = vs*reduce_factor
   vxy=int((xymax-xymin)/new_vs)
-  vz=int((zmax-xymin)/new_vs)
+  vz=int((zmax-zmin)/new_vs)
   pt=(pt/new_vs).int()
   pt = torch.clamp(pt, 0,vxy-1)
-  pt[:,2] = torch.clamp(pt[:,2], 0, vz-1)  
-  feature_dim = pt_fea.shape[1]-3
-  
-  vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
-  for i in range(pt_fea.shape[0]):
-    vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+  pt[:,:,2] = torch.clamp(pt[:,:,2], 0, vz-1) 
+   
+  vol_fea = torch.zeros((B, F, vxy*vxy*vz))
+  for i in range(B):
+    idxs = (pt[i,:,0]*vxy*vz+pt[i,:,1]*vz+pt[i,:,2]).long()
+    out = pt_fea.new_zeros((F, vxy*vxy*vz)) 
+    fea_i = torch.transpose(fea[i], 0,1) # F, N
+    out, argmax = scatter_max(fea_i, idxs, out=out)
+    vol_fea[i]=out
+  vol_fea =torch.reshape(vol_fea, (B, F, vxy, vxy, vz))
+  #vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+  #for i in range(pt_fea.shape[0]):
+  #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
   return vol_fea
     
     
