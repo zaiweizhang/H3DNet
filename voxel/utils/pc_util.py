@@ -138,11 +138,19 @@ def voxel_to_pt_descriptor_numpy(fea, pt,vs=0.025, reduce_factor=16, xymin=-3.2,
   for i in range(num_pt):
     pt_feature[i] = fea[pt[i,0], pt[i,1], pt[i,2]]
   return pt_feature  
-
+ 
 def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
-  # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
-  # pt: [N, 3]
+  # fea: [B, Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
+  # pt: [B, N, 3]
   # first translate pt to V/reduce_factor scale, then registrate to voxel grid
+  B = fea.shape[0]
+  N = pt.shape[1]
+  F = fea.shape[1]
+  vxy = fea.shape[2]
+  vz= fea.shape[4]
+  pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
+  fea = (fea.view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f
+  fea =fea.view(fea.shape[0]*fea.shape[1], -1) # b*vx*vy*vz, f  
   pt = torch.clamp(pt, xymin, xymax-0.1)
   pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
   pt[:,0] = pt[:,0]-xymin
@@ -151,9 +159,9 @@ def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.
   new_vs = vs*reduce_factor
   pt = (pt/new_vs).int()
   num_pt = pt.shape[0]
-  pt_feature = torch.zeros((num_pt, fea.shape[0]))
-  for i in range(num_pt):
-    pt_feature[i] = fea[:, pt[i,0], pt[i,1], pt[i,2]]
+  idxs = pt[:,0]*vxy*vz+pt[:,1]*vz+pt[:,2]
+  pt_feature = torch.index_select(fea, 0,idxs.long()) 
+  pt_feature=pt_feature.view(B, N, F)
   return pt_feature
 
 def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
