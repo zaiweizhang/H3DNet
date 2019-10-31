@@ -8,4 +8,4 @@ Object Cues:
 4. support surface points (4 points)
 
 Command:
-CUDA_VISIBLE_DEVICES=0 python train.py --dataset scannet --log_dir log_obj_detection_objcue_nojoint --num_point 40000 --use_color --use_support --max_epoch 360
+CUDA_VISIBLE_DEVICES=0 python train.py --dataset scannet_hd --log_dir log_objcue --num_point 40000 --use_plane --model hdnet --max_epoch 360 --dump_results --use_objcue --batch_size 4
