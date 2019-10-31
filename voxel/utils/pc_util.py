@@ -150,7 +150,7 @@ def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.
   vz= fea.shape[4]
   pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
   fea = (fea.view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f
-  fea =fea.view(fea.shape[0]*fea.shape[1], -1) # b*vx*vy*vz, f  
+  fea =torch.reshape(fea,(fea.shape[0]*fea.shape[1], -1)) # b*vx*vy*vz, f  
   pt = torch.clamp(pt, xymin, xymax-0.1)
   pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
   pt[:,0] = pt[:,0]-xymin
