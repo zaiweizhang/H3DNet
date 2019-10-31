@@ -1,0 +1,4 @@
+Try: this
+
+newobject = perturb_object(PFunc{100}.gt_objects(1,:))
+[opt_object] = object_opt_v1(PFunc{100}, newobject, Para_local);
