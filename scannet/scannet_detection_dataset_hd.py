@@ -103,7 +103,7 @@ def find_idx(targetbb, selected_centers, selected_centers_support, selected_cent
 class ScannetDetectionDataset(Dataset):
        
     def __init__(self, split_set='train', num_points=20000,
-                 use_color=False, use_height=False, augment=False, vsize=0.05, center_dev=2, corner_dev=1, use_tsdf=1, center_reduce=0, corner_reduce=1):
+                 use_color=False, use_height=False, augment=False, vsize=0.06, use_tsdf=0, use_18cls=1):
 
         self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
         all_scan_names = list(set([os.path.basename(x)[0:12] \
@@ -132,11 +132,8 @@ class ScannetDetectionDataset(Dataset):
 
         ### Vox parameters
         self.vsize = vsize
-        self.center_dev = center_dev
-        self.corner_dev = corner_dev
-        self.center_reduce = center_reduce
-        self.corner_reduce = corner_reduce
         self.use_tsdf = use_tsdf
+        self.use_18cls = use_18cls
         
     def __len__(self):
         return len(self.scan_names)
@@ -165,6 +162,20 @@ class ScannetDetectionDataset(Dataset):
         #meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
         ### With ori
         meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
+
+        ### Load voxel data
+        sem_vox=np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_sem.npy'))
+        vox = np.array(sem_vox>0,np.float32)
+        if self.use_tsdf:
+            vox =  read_tsdf(os.path.join(self.data_path+'_vox', scan_name+'.TDF.bin'))
+        if self.use_18cls:
+            vox_center = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_center_noangle_18.npy'))
+            vox_corner = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_corner_noangle_18.npy'))
+            sem_vox=np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_sem_18cls.npy'))
+        else:
+            vox_center = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_center.npy'))
+            vox_corner = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_corner.npy'))
+        
         instance_labels = meta_vertices[:,-2]
         semantic_labels = meta_vertices[:,-1]
         #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
@@ -459,6 +470,11 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['pcl_color'] = pcl_color
         ret_dict['num_instance'] = num_instance
         ret_dict['scan_name'] = scan_name
+
+        ret_dict['voxel'] =np.expand_dims(vox.astype(np.float32), 0)
+        ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
+        ret_dict['vox_center'] = np.expand_dims(np.array(vox_center, np.float32), 0)
+        ret_dict['vox_corner'] = np.expand_dims(np.array(vox_corner, np.float32), 0)
         
         return ret_dict
         

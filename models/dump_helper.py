@@ -258,6 +258,9 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
     seed_gt_corner += seed_xyz
     seed_pred_corner = end_points['vote_xyz_corner'][:,:,:3].detach().cpu().numpy()
 
+    seed_gt_sem = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds).detach().cpu().numpy()
+    seed_pred_sem = torch.argmax(end_points['pred_sem_class'], 1).detach().cpu().numpy()
+        
     #sio.savemat(os.path.join(dump_dir,'point_cue.mat'), {'full_pc': point_clouds[:,:,:3], 'seed_xyz':seed_xyz, 'mask':seed_gt_mask, 'gt_center': seed_gt_center, 'gt_corner': seed_gt_corner, 'pred_center': seed_pred_center, 'pred_corner': seed_pred_corner})
     ### Visulization here
     new_ind = new_ind.detach().cpu().numpy()
@@ -267,6 +270,8 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
         pc_util.pc2obj(seed_xyz[i, inds, ...], os.path.join(dump_dir,'subpc_%d.obj' % i))
         pc_util.pc2obj(seed_gt_center[i,inds,...], os.path.join(dump_dir,'subpc_gt_center_%d.obj' % i))
         pc_util.pc2obj(seed_pred_center[i,inds,...], os.path.join(dump_dir,'subpc_pred_center_%d.obj' % i))
+        pc_util.write_ply_label(seed_xyz[i, inds, ...], seed_gt_sem[i,inds], os.path.join(dump_dir,'subpc_gt_sem_%d.ply' % i), 38)
+        pc_util.write_ply_label(seed_xyz[i, inds, ...], seed_pred_sem[i,inds], os.path.join(dump_dir,'subpc_pred_sem_%d.ply' % i), 38)
     
         pred_center = seed_pred_center[i,...]
         db = DBSCAN(eps=0.3, min_samples=10).fit(pred_center)
@@ -283,7 +288,8 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
 
         pc_util.pc2obj(seed_gt_corner[i,inds,...], 'subpc_gt_corner_%d.obj' % i)
         pc_util.pc2obj(seed_pred_corner[i,inds,...], 'subpc_pred_corner_%d.obj' % i)
-        sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...]})
+        sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...], 'gt_sem': seed_gt_sem[i,...], 'pred_sem': seed_pred_sem[i,...]})
+
     ### Gt planes
     new_ind = torch.tensor(new_ind).cuda()
     mode = 'upper'

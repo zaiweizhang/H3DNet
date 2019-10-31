@@ -10,6 +10,8 @@ Author: Charles R. Qi and Or Litany
 
 import os
 import sys
+import torch
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
@@ -25,6 +27,7 @@ except:
 
 # Mesh IO
 import trimesh
+from torch_scatter import scatter_max
 
 import matplotlib.pyplot as pyplot
 
@@ -36,6 +39,163 @@ def pc2obj(pc, filepath='test.obj'):
         for v in range(nverts):
             f.write("v %.4f %.4f %.4f\n" % (pc[0,v],pc[1,v],pc[2,v]))
 
+def compute_iou(v1, v2, thres=0.3):
+    bv1 = (v1>thres).float()
+    bv2 = (v2>thres).float()
+    iou=0.0
+    for i in range(v1.shape[0]):
+        iou += torch.sum(bv1[i]*bv2[i]).float()/torch.sum(bv1[i]+bv2[i]-bv1[i]*bv2[i]).float()
+    iou = iou/v1.shape[0]
+    return iou
+
+def save_vox_results(vox, center, pred, outfolder, epoch, i, mode, num_classes=2):
+    vox = vox.cpu().numpy()[0,0]
+    center = center.cpu().numpy()[0, 0]
+    pred =pred.detach().cpu().numpy()[0,0]
+    pt_vox = volume_to_point_cloud(vox)
+    pt_center = volume_to_point_cloud(center, thres=0.3)
+    pred_center = volume_to_point_cloud(pred, thres=0.3)
+    # pt_center, center_label = multichannel_volume_to_point_cloud(center)
+    # pred_center, pred_center_label = multichannel_volume_to_point_cloud(pred)
+    
+    num_pt_vox = pt_vox.shape[0]
+    num_pt_center = pt_center.shape[0]
+    num_pred_center = pred_center.shape[0]
+    print ('pred_'+mode,num_pred_center)
+    print ('gt_'+mode, num_pt_center)
+    pt_vox_center = np.concatenate((pt_vox, pt_center),axis=0)
+    pred_vox_center = np.concatenate((pt_vox, pred_center),axis=0)
+    label = np.zeros(num_pt_center+num_pt_vox)
+    label[-num_pt_center:]=1
+    label_pred = np.zeros(num_pred_center+num_pt_vox)
+    label_pred[-num_pred_center:]=1
+    write_ply_color(pt_vox_center, label, os.path.join(outfolder,'{}_{}_{}.ply'.format(epoch, i, mode)), num_classes=num_classes)  
+    write_ply_color(pred_vox_center, label_pred, os.path.join(outfolder,'{}_{}_{}_pred.ply'.format(epoch, i, mode)), num_classes=num_classes)
+    
+def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
+    # pt: [N, 3]
+    # first translate pt to V/reduce_factor scale, then registrate to voxel grid
+    pt = torch.clamp(pt, xymin, xymax-0.1)
+    pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+    pt[:,0] = pt[:,0]-xymin
+    pt[:,1] = pt[:,1]-xymin
+    pt[:,2] = pt[:,2]-zmin
+    new_vs = vs*reduce_factor
+    pt = (pt/new_vs).int()
+    num_pt = pt.shape[0]
+    pt_feature = torch.zeros((num_pt, fea.shape[0]))
+    for i in range(num_pt):
+        pt_feature[i] = fea[:, pt[i,0], pt[i,1], pt[i,2]]
+    return pt_feature
+
+def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    B, N, K = pt_fea.shape
+    F = K-3
+    pt = pt_fea[:,:,0:3] #xyz
+    fea = pt_fea[:,:,3:]
+    pt = torch.clamp(pt, xymin, xymax-0.1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
+    pt[:,:,0] = pt[:,:,0]-xymin
+    pt[:,:,1] = pt[:,:,1]-xymin
+    pt[:,:,2] = pt[:,:,2]-zmin
+    new_vs = vs*reduce_factor
+    vxy=int((xymax-xymin)/new_vs)
+    vz=int((zmax-zmin)/new_vs)
+    pt=(pt/new_vs).int()
+    pt = torch.clamp(pt, 0,vxy-1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], 0, vz-1) 
+   
+    vol_fea = torch.zeros((B, F, vxy*vxy*vz))
+    for i in range(B):
+        idxs = (pt[i,:,0]*vxy*vz+pt[i,:,1]*vz+pt[i,:,2]).long()
+        out = pt_fea.new_zeros((F, vxy*vxy*vz)) 
+        fea_i = torch.transpose(fea[i], 0,1) # F, N
+        out, argmax = scatter_max(fea_i, idxs, out=out)
+        vol_fea[i]=out
+    vol_fea =torch.reshape(vol_fea, (B, F, vxy, vxy, vz))
+    #vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+    #for i in range(pt_fea.shape[0]):
+    #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+    return vol_fea
+
+def pt_to_voxel_feature_batch_test(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    B, N, K = pt_fea.shape
+    F = K-3
+    pt = pt_fea[:,:,0:3] #xyz
+    fea = pt_fea[:,:,3:]
+    pt = torch.clamp(pt, xymin, xymax-0.1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
+    pt[:,:,0] = pt[:,:,0]-xymin
+    pt[:,:,1] = pt[:,:,1]-xymin
+    pt[:,:,2] = pt[:,:,2]-zmin
+    new_vs = vs*reduce_factor
+    vxy=int((xymax-xymin)/new_vs)
+    vz=int((zmax-zmin)/new_vs)
+    pt=(pt/new_vs).int()
+    pt = torch.clamp(pt, 0,vxy-1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], 0, vz-1) 
+
+    vol_fea = []
+    for i in range(B):
+        idxs = (pt[i,:,0]*vxy*vz+pt[i,:,1]*vz+pt[i,:,2]).long()
+        out = pt_fea.new_zeros((F, vxy*vxy*vz)) 
+        fea_i = torch.transpose(fea[i], 0,1) # F, N
+        out, argmax = scatter_max(fea_i, idxs, out=out)
+        vol_fea.append(out)
+    vol_fea = torch.stack(vol_fea, 0)
+    vol_fea =torch.reshape(vol_fea, (B, F, vxy, vxy, vz))
+    #vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+    #for i in range(pt_fea.shape[0]):
+    #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+    return vol_fea
+
+def voxel_to_pt_feature_batch(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
+    # pt: [N, 3]
+    B = fea.shape[0]
+    N = pt.shape[1]
+    F = fea.shape[1]
+    vxy = fea.shape[2]
+    vz= fea.shape[4]
+    pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
+    fea = (fea.contiguous().view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f
+    fea =fea.contiguous().view(fea.shape[0]*fea.shape[1], -1) # b*vx*vy*vz, f  
+    pt = torch.clamp(pt, xymin, xymax-0.1)
+    pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+    pt[:,0] = pt[:,0]-xymin
+    pt[:,1] = pt[:,1]-xymin
+    pt[:,2] = pt[:,2]-zmin
+    new_vs = vs*reduce_factor
+    pt = (pt/new_vs).int()
+    num_pt = pt.shape[0]
+    idxs = pt[:,0]*vxy*vz+pt[:,1]*vz+pt[:,2]
+    pt_feature = torch.index_select(fea, 0,idxs.long()) 
+    pt_feature=pt_feature.view(B, N, F)
+    return pt_feature
+
+
+def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+    pt = pt_fea[:,0:3] #xyz
+    pt = torch.clamp(pt, xymin, xymax-0.1)
+    pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+    pt[:,0] = pt[:,0]-xymin
+    pt[:,1] = pt[:,1]-xymin
+    pt[:,2] = pt[:,2]-zmin
+    new_vs = vs*reduce_factor
+    vxy=int((xymax-xymin)/new_vs)
+    vz=int((zmax-xymin)/new_vs)
+    pt=(pt/new_vs).int()
+    pt = torch.clamp(pt, 0,vxy-1)
+    pt[:,2] = torch.clamp(pt[:,2], 0, vz-1)  
+    feature_dim = pt_fea.shape[1]-3
+  
+    vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+    for i in range(pt_fea.shape[0]):
+        vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+    return vol_fea
+
+            
 # ----------------------------------------
 # Point Cloud Sampling
 # ----------------------------------------
@@ -237,7 +397,7 @@ def write_ply_color(points, labels, filename, num_classes=None, colormap=pyplot.
 def hashlist(l):
     temps = ''
     for i in l:
-        temps += str(int(i))
+        temps += str(i)
     return temps
 
 def construct_dict(labels, predict=None):
@@ -253,7 +413,7 @@ def construct_dict(labels, predict=None):
             d[label] = counter
             counter += 1
     return d
-
+    
 def get_correct(pred, gt):
     total = 0
     for i in range(len(pred)):
@@ -263,7 +423,7 @@ def get_correct(pred, gt):
 
 def write_ply_color_multi(points, labels, filename, pre_dict=None, colormap=pyplot.cm.jet):
     """ Color (N,3) points with labels (N) within range 0 ~ num_classes-1 as OBJ file """
-    labels = labels.astype(int)
+    #labels = labels.astype(int)
     N = points.shape[0]
     
     cdict = construct_dict(labels, predict=pre_dict)
@@ -280,7 +440,27 @@ def write_ply_color_multi(points, labels, filename, pre_dict=None, colormap=pypl
     
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=True).write(filename)
-
+    return cdict
+    
+def write_ply_label(points, labels, filename, num_classes, colormap=pyplot.cm.jet):
+    """ Color (N,3) points with labels (N) within range 0 ~ num_classes-1 as OBJ file """
+    labels = labels.astype(int)
+    N = points.shape[0]
+    #cdict = construct_dict(labels, predict=pre_dict)
+            
+    #num_classes = len(cdict.keys())
+    vertex = []
+    #colors = [pyplot.cm.jet(i/float(num_classes)) for i in range(num_classes)]    
+    colors = [colormap(i/float(num_classes)) for i in range(num_classes)]    
+    for i in range(N):
+        c = colors[labels[i]]
+        c = [int(x*255) for x in c]
+        vertex.append( (points[i,0],points[i,1],points[i,2],c[0],c[1],c[2]) )
+    vertex = np.array(vertex, dtype=[('x', 'f4'), ('y', 'f4'),('z', 'f4'),('red', 'u1'), ('green', 'u1'),('blue', 'u1')])
+    
+    el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
+    PlyData([el], text=True).write(filename)
+    
 def write_ply_rgb(points, colors, out_filename, num_classes=None):
     """ Color (N,3) points with RGB colors (N,3) within range [0,255] as OBJ file """
     colors = colors.astype(int)
@@ -475,8 +655,8 @@ def write_oriented_bbox(scene_bbox, out_filename):
     
     mesh_list = trimesh.util.concatenate(scene.dump())
     # save to ply file    
-    trimesh.io.export.export_mesh(mesh_list, out_filename, file_type='ply')
-    
+    #trimesh.io.export.export_mesh(mesh_list, out_filename, file_type='ply')
+    mesh_list.export(out_filename, file_type='ply')
     return
 
 def write_oriented_bbox_camera_coord(scene_bbox, out_filename):

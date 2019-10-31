@@ -38,7 +38,7 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from pytorch_utils import BNMomentumScheduler
 from tf_visualizer import Visualizer as TfVisualizer
 from ap_helper import APCalculator, parse_predictions, parse_groundtruths
-
+from pc_util import compute_iou
 from dump_helper import dump_results, dump_planes, dump_objcue
 
 parser = argparse.ArgumentParser()
@@ -139,6 +139,17 @@ elif FLAGS.dataset == 'scannet':
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+elif FLAGS.dataset == 'scannet_hd':
+    sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
+    from scannet_detection_dataset_hd import ScannetDetectionDataset, MAX_NUM_OBJ
+    from model_util_scannet import ScannetDatasetConfig
+    DATASET_CONFIG = ScannetDatasetConfig()
+    TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
+        augment=True,
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+    TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
+        augment=False,
+        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
@@ -158,6 +169,9 @@ if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet
 elif FLAGS.model == 'planenet':
     Detector = MODEL.PlaneNet
+    num_input_channel += 4
+elif FLAGS.model == 'hdnet':
+    Detector = MODEL.HDNet
     num_input_channel += 4
 else:
     Detector = MODEL.VoteNet
@@ -229,13 +243,16 @@ def train_one_epoch():
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
+        for i in range(len(batch_data_label['num_instance'])):
+            if batch_data_label['num_instance'][i] == 0:
+                print (batch_data_label['scan_name'][i])
         for key in batch_data_label:
             if 'name' not in key:
                 batch_data_label[key] = batch_data_label[key].to(device)
 
         # Forward pass
         optimizer.zero_grad()
-        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
         end_points = {}
         end_points['use_objcue'] = FLAGS.use_objcue
         end_points['use_plane'] = FLAGS.use_plane
@@ -246,6 +263,7 @@ def train_one_epoch():
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
+            #optimize_proposal(inputs, end_points)
             dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
@@ -257,6 +275,13 @@ def train_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
+        ### For voxel
+        center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
+        corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
+        #if i % 100 == 0 and i!=0: 
+        #    save_vox_results(vox, corners, pred_corner, opt.outf, epoch, i, 'train_corner')
+        #    save_vox_results(vox, center, pred_center, opt.outf, epoch, i, 'train_center')
+            
         batch_interval = 10
         if (batch_idx+1) % batch_interval == 0:
             log_string(' ---- batch: %03d ----' % (batch_idx+1))
@@ -265,13 +290,24 @@ def train_one_epoch():
             for key in sorted(stat_dict.keys()):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
+            log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
     ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
+    total_correct_sem = 0
+    total_sem = 0
+    correct_cls = {}
+    total_cls = {}
+    for cls in DATASET_CONFIG.class2type:
+        correct_cls[cls] = 0
+        total_cls[cls] = 0
     for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+        for i in range(len(batch_data_label['num_instance'])):
+            if batch_data_label['num_instance'][i] == 0:
+                print (batch_data_label['scan_name'][i])
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
         for key in batch_data_label:
@@ -279,7 +315,8 @@ def evaluate_one_epoch():
                 batch_data_label[key] = batch_data_label[key].to(device)
         
         # Forward pass
-        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
+        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
+        #inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
         with torch.no_grad():
             end_points = {}
             end_points['use_objcue'] = FLAGS.use_objcue
@@ -300,6 +337,16 @@ def evaluate_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
+        ### For voxel
+        center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
+        corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
+        log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
+        for i in range(len(batch_data_label['num_instance'])):
+            for cls in DATASET_CONFIG.class2type.keys():
+                correct_cls[cls] += np.sum((np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy())) & (np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1))
+                total_cls[cls] += np.sum(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1)
+            total_correct_sem += np.sum(np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
+            total_sem += len(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
         #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
         #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
@@ -317,6 +364,9 @@ def evaluate_one_epoch():
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
+    log_string("total_sem_acc: %f" % (total_correct_sem / float(total_sem)))
+    for cls in DATASET_CONFIG.class2type:
+        log_string("For %s: %f"%(DATASET_CONFIG.class2type[cls], correct_cls[cls] / float(total_cls[cls])))
     # Evaluate average precision
     metrics_dict = ap_calculator.compute_metrics()
     for key in metrics_dict:
@@ -324,7 +374,6 @@ def evaluate_one_epoch():
 
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
-
 
 def train(start_epoch):
     global EPOCH_CNT 

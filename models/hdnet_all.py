@@ -17,18 +17,23 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
+sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+import pc_util
+
 from backbone_module import Pointnet2Backbone, Pointnet2BackbonePlane
 from backbone_module_pairwise import Pointnet2BackbonePairwise
 from backbone_module_decoder import Pointnet2BackboneDecoder
 from backbone_module_dis import Pointnet2BackboneDis
+
 from voting_module import VotingModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
 from proposal_module import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
+from resnet_autoencoder import TwoStreamNetEncoder, TwoStreamNetDecoder
 
-class PlaneNet(nn.Module):
+class HDNet(nn.Module):
     r"""
         A deep neural network for 3D object detection with end-to-end optimizable hough voting.
 
@@ -67,6 +72,7 @@ class PlaneNet(nn.Module):
         self.backbone_net_point = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        self.backbone_net_voxel = TwoStreamNetEncoder()
         #self.backbone_net_other = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net_sem_support = Pointnet2BackbonePairwise(input_feature_dim=(num_class+1), task="sem")
         #self.backbone_net_tosem_support = Pointnet2BackboneDecoder(input_feature_dim=num_class*2, task="decoder")
@@ -88,10 +94,11 @@ class PlaneNet(nn.Module):
         # Hough voting
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
-        self.vgen = VotingModule(self.vote_factor, 256)
-        self.vgen_plane = VotingPlaneModule(self.vote_factor, 256)
+        self.vgen = VotingModule(self.vote_factor, 256+256)
+        self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+256)
         #self.vgen = MeanShiftModule(self.vote_factor, 256)    
-
+        self.vgen_voxel = TwoStreamNetDecoder()
+        
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
 
@@ -112,6 +119,7 @@ class PlaneNet(nn.Module):
         end_points = self.backbone_net_point(inputs['point_clouds'], end_points)
         end_points = self.backbone_net_point(inputs['point_clouds'], end_points, mode='sem')
         end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
+        end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points)
 
         # --------- HOUGH VOTING ---------
         xyz = end_points['fp2_xyz']
@@ -126,6 +134,9 @@ class PlaneNet(nn.Module):
         end_points['seed_xyz'+'plane'] = xyz_plane
         end_points['seed_features'+'plane'] = features_plane
 
+        features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], xyz)
+        features_vox = features_vox.contiguous().transpose(2,1)
+    
         xyz_sem = end_points['fp2_xyz'+'sem']
         features_sem = end_points['fp2_features'+'sem']
         end_points['seed_inds'+'sem'] = end_points['fp2_inds'+'sem']
@@ -133,11 +144,16 @@ class PlaneNet(nn.Module):
         end_points['seed_features'+'sem'] = features_sem
         
         #features_combine_point = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_point = torch.cat((features, features_plane), 1)
+        features_combine_point = torch.cat((features, features_plane, features_vox.detach()), 1)
         features_combine_sem = features_sem
         #features_combine_sem = torch.cat((features.detach(), features_plane.detach(), features_sem), 1)
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_plane = torch.cat((features, features_plane), 1)
+        features_combine_plane = torch.cat((features, features_plane, features_vox.detach()), 1)
+        allfeat = torch.cat((xyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
+        features_other_vox = pc_util.pt_to_voxel_feature_batch(allfeat)
+        #features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox), 1)
+        features_combine_vox = end_points['vox_latent_feature']
+
         '''
         features_combine = torch.cat((features, features_plane), 1)
         '''
@@ -147,6 +163,8 @@ class PlaneNet(nn.Module):
         end_points['vote_xyz'] = voted_xyz
         end_points['vote_xyz_corner'] = voted_xyz_corner
 
+        end_points = self.vgen_voxel(features_combine_vox, end_points)
+        
         seed_plane = torch.gather(inputs['plane_label'][:,:,4:], 1, end_points['seed_inds'].long().unsqueeze(-1).repeat(1,1,4))
 
         xyz_plane = torch.cat((xyz, seed_plane), -1)

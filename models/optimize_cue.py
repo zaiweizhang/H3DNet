@@ -13,10 +13,29 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 from nn_distance import nn_distance, huber_loss
 
-FAR_THRESHOLD = 0.6
-NEAR_THRESHOLD = 0.3
-GT_VOTE_FACTOR = 3 # number of GT votes per point
-OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
+OBJ_THRESH = 0.05
+
+def extract_center_and_corner(curobject):
+    cen = cur_object[];
+    xsize = cur_object(4);
+    ysize = cur_object(5);
+    zsize = cur_object(6);
+theta = cur_object(7);
+nx = [cos(theta), sin(theta), 0]';
+ny = [-sin(theta), cos(theta), 0]';
+nz = [0,0,1]';
+corners(:,1) = cen + nx*xsize/2 + ny*ysize/2 + nz*zsize/2;
+corners(:,2) = cen - nx*xsize/2 + ny*ysize/2 + nz*zsize/2;
+corners(:,3) = cen + nx*xsize/2 - ny*ysize/2 + nz*zsize/2;
+corners(:,4) = cen - nx*xsize/2 - ny*ysize/2 + nz*zsize/2;
+corners(:,5) = cen + nx*xsize/2 + ny*ysize/2 - nz*zsize/2;
+corners(:,6) = cen - nx*xsize/2 + ny*ysize/2 - nz*zsize/2;
+corners(:,7) = cen + nx*xsize/2 - ny*ysize/2 - nz*zsize/2;
+corners(:,8) = cen - nx*xsize/2 - ny*ysize/2 - nz*zsize/2;
+
+def cue_reweighting(end_points, curobject):
+    center, corner = extract_center_and_corner(curobject)
+    
 
 def compute_vote_loss(end_points):
     """ Compute vote loss: Match predicted votes to GT votes.
@@ -446,7 +465,13 @@ def get_loss(end_points, config):
     w9_cor = 60
     w8_cor = 250
     w5_cor = 5
-    
+    ## get the voxel loss here
+    voxel_center_loss = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
+    end_points['voxel_loss_center'] = voxel_center_loss
+    voxel_corner_loss = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
+    end_points['voxel_loss_corner'] = voxel_corner_loss
+    end_points['voxel_loss'] = voxel_center_loss*wcenter + voxel_corner_loss*wcorner
+    return end_points['voxel_loss'], end_points
     # Vote loss
     vote_loss = compute_vote_loss(end_points)*10
     end_points['vote_loss'] = vote_loss
@@ -524,7 +549,8 @@ def get_loss(end_points, config):
 
         loss_plane_center = compute_center_plane_loss(end_points)*100*50
         end_points['loss_plane_center'] = loss_plane_center
-        loss = loss_plane + vote_loss + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
+        #loss = loss_plane + vote_loss + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
+        loss = end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
         return loss, end_points
     
