@@ -162,9 +162,9 @@ class ScannetDetectionDataset(Dataset):
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         plane_vertices = np.load(os.path.join(self.data_path, scan_name)+'_plane.npy')
         ### Without ori
-        #meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
+        meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
         ### With ori
-        meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
+        #meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
         instance_labels = meta_vertices[:,-2]
         semantic_labels = meta_vertices[:,-1]
         #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')

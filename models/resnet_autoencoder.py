@@ -566,7 +566,7 @@ class TwoStreamNetDecoder(nn.Module):
         super(TwoStreamNetDecoder, self).__init__()
         self.encoder_filters = encoder_filters
 
-        self.up1 = conv_trans_block_3d(self.encoder_filters*8, num_filters*4, kernel_size=4, stride=2)
+        self.up1 = conv_trans_block_3d(self.encoder_filters*8*2, num_filters*4, kernel_size=4, stride=2)
         self.up_layer1 = self._make_layer(block, num_filters*4, num_filters*4, layers[3], shortcut_type)
         
         self.up2 = conv_trans_block_3d(num_filters*4, num_filters*2, kernel_size=4, stride=2)
@@ -580,7 +580,7 @@ class TwoStreamNetDecoder(nn.Module):
 
         self.pred_layer = conv3d(num_filters//2, self.outplanes1, kernel_size=3, stride=1)
         
-        self.up12 = conv_trans_block_3d(self.encoder_filters*8, num_filters*4, kernel_size=4, stride=2)
+        self.up12 = conv_trans_block_3d(self.encoder_filters*8*2, num_filters*4, kernel_size=4, stride=2)
         self.up_layer12 = self._make_layer(block, num_filters*4, num_filters*4, layers[3], shortcut_type)
         
         self.up22 = conv_trans_block_3d(num_filters*4, num_filters*2, kernel_size=4, stride=2)
