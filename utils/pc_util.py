@@ -89,7 +89,7 @@ def voxel_to_pt_feature(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.
         pt_feature[i] = fea[:, pt[i,0], pt[i,1], pt[i,2]]
     return pt_feature
 
-def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def pt_to_voxel_feature_batch_orig(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
     B, N, K = pt_fea.shape
     F = K-3
     pt = pt_fea[:,:,0:3] #xyz
@@ -119,7 +119,7 @@ def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xy
     #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
     return vol_fea
 
-def pt_to_voxel_feature_batch_test(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
     B, N, K = pt_fea.shape
     F = K-3
     pt = pt_fea[:,:,0:3] #xyz
