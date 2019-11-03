@@ -15,17 +15,16 @@ from box_util import get_3d_box
 class ScannetDatasetConfig(object):
     def __init__(self):
         self.num_class = 18
-        self.num_heading_bin = 1
+        self.num_heading_bin = 24 # angle: -pi/2~pi/2, so divide 0~2*pi into 24 bin
         self.num_size_cluster = 18
 
-        self.type2class = {'cabinet':0, 'bed':1, 'chair':2, 'sofa':3, 'table':4, 'door':5,'window':6,'bookshelf':7,'picture':8, 'counter':9, 'desk':10, 'curtain':11,'refrigerator':12, 'showercurtrain':13, 'toilet':14, 'sink':15, 'bathtub':16, 'garbagebin':17}
-        #self.type2class = {'wall':0, 'floor':1, 'cabinet':2, 'bed':3, 'chair':4, 'sofa':5, 'table':6, 'door':7,'window':8,'bookshelf':9,'picture':10, 'counter':11, 'blinds':12, 'desk':13, 'shelves':14, 'curtain':15, 'dresser':16, 'pillow':17, 'mirror':18, 'floormat':19, 'clothes':20, 'ceiling':21, 'books':22, 'refrigerator':23, 'television':24, 'paper':25, 'towel':26, 'showercurtrain':27, 'box':28, 'whiteboard':29, 'person':30, 'nightstand':31, 'toilet':32, 'sink':33, 'lamp':34, 'bathtub':35, 'bag':36, 'otherstructure':37, 'otherfurniture':38, 'otherprop':39}
-        #self.type2class = {'wall':0, 'floor':1, 'cabinet':2, 'bed':3, 'chair':4, 'sofa':5, 'table':6, 'door':7,'window':8,'bookshelf':9,'picture':10, 'counter':11, 'blinds':12, 'desk':13, 'shelves':14, 'curtain':15, 'dresser':16, 'pillow':17, 'mirror':18, 'floormat':19, 'clothes':20, 'ceiling':21, 'books':22, 'refrigerator':23, 'television':24, 'paper':25, 'towel':26, 'showercurtrain':27, 'box':28, 'whiteboard':29, 'person':30, 'nightstand':31, 'toilet':32, 'sink':33, 'lamp':34, 'bathtub':35, 'bag':36}
+        self.type2class = {'cabinet':0, 'bed':1, 'chair':2, 'sofa':3, 'table':4, 'door':5,
+            'window':6,'bookshelf':7,'picture':8, 'counter':9, 'desk':10, 'curtain':11,
+            'refrigerator':12, 'showercurtrain':13, 'toilet':14, 'sink':15, 'bathtub':16, 'garbagebin':17}  
         self.class2type = {self.type2class[t]:t for t in self.type2class}
         self.nyu40ids = np.array([3,4,5,6,7,8,9,10,11,12,14,16,24,28,33,34,36,39])
         self.nyu40id2class = {nyu40id: i+1 for i,nyu40id in enumerate(list(self.nyu40ids))}
-        #self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means_v2.npz'))['arr_0']
-        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means_v2.npz.npy'))[:37,:]
+        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means.npz'))['arr_0']
         self.type_mean_size = {}
         for i in range(self.num_size_cluster):
             self.type_mean_size[self.class2type[i]] = self.mean_size_arr[i,:]
@@ -39,15 +38,42 @@ class ScannetDatasetConfig(object):
             return is class of int32 of 0,1,...,N-1 and a number such that
                 class*(2pi/N) + number = angle
 
-            NOT USED.
+            # NOT USED.
         '''
-        assert(False)
+        # assert(False)
+        num_class = self.num_heading_bin
+        angle = angle%(2*np.pi)
+        assert(angle>=0 and angle<=2*np.pi)
+        angle_per_class = 2*np.pi/float(num_class)
+        shifted_angle = (angle+angle_per_class/2)%(2*np.pi)
+        class_id = int(shifted_angle/angle_per_class)
+        residual_angle = shifted_angle - (class_id*angle_per_class+angle_per_class/2)
+        return class_id, residual_angle
     
     def class2angle(self, pred_cls, residual, to_label_format=True):
         ''' Inverse function to angle2class.
-        
-        As ScanNet only has axis-alined boxes so angles are always 0. '''
-        return 0
+        '''
+        num_class = self.num_heading_bin
+        angle_per_class = 2*np.pi/float(num_class)
+        angle_center = pred_cls * angle_per_class
+        angle = angle_center + residual
+        if to_label_format and angle>np.pi:
+            angle = angle - 2*np.pi
+        return angle
+
+    def angle2class2(self, angle):
+        ''' modify according to sunrgbd         
+            scannet_angle: angle: -pi/2 ~ pi/2       
+            1: angle += pi/2 -> 0~pi                  
+            2: class*(2pi/N) + number = angle + pi/2  
+        '''   
+        class_id, residual_angle = self.angle2class(angle + np.pi / 2)
+        return class_id, residual_angle
+            
+    def class2angle2(self, pred_cls, residual, to_label_format=True):
+        angle = self.class2angle(pred_cls, residual)
+        angle = angle - np.pi / 2
+        return angle
 
     def size2class(self, size, type_name):
         ''' Convert 3D box size (l,w,h) to size class and size residual '''
