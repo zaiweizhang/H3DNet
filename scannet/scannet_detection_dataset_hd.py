@@ -27,7 +27,7 @@ from scipy.optimize import leastsq
 from scipy.cluster.vq import vq, kmeans, whiten
 
 DC = ScannetDatasetConfig()
-MAX_NUM_OBJ = 100#64
+MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
 def f_min(X,p):
@@ -223,22 +223,28 @@ class ScannetDetectionDataset(Dataset):
         #target_bboxes[0:instance_bboxes.shape[0],:] = instance_bboxes[:,0:6]
         
         # ------------------------------- DATA AUGMENTATION ------------------------------        
-        if False:#self.augment:## Do not use augment for now
+        # if False:#self.augment:## Do not use augment for now
+        if self.augment:
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_cloud[:,0] = -1 * point_cloud[:,0]
-                target_bboxes[:,0] = -1 * target_bboxes[:,0]                
+                # target_bboxes[:,0] = -1 * target_bboxes[:,0]                
+                meta_vertices[:, 0] = -1 * meta_vertices[:, 0]                
+                meta_vertices[:, 6] = -1 * meta_vertices[:, 6]
                 
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 point_cloud[:,1] = -1 * point_cloud[:,1]
-                target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
+                # target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
+                meta_vertices[:, 1] = -1 * meta_vertices[:, 1]
+                meta_vertices[:, 6] = -1 * meta_vertices[:, 6]
             
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
             rot_mat = pc_util.rotz(rot_angle)
             point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
-            target_bboxes = rotate_aligned_boxes(target_bboxes, rot_mat)
+            meta_vertices[:, :6] = rotate_aligned_boxes(meta_vertices[:, :6], rot_mat)
+            meta_vertices[:, 6] += rot_angle
 
         # ------------------------------- SUPPORT RELATION ------------------------------
         # compute votes *AFTER* augmentation
@@ -392,18 +398,24 @@ class ScannetDetectionDataset(Dataset):
                     import pdb;pdb.set_trace()
                     '''
         num_instance = len(obj_meta)
-        if len(obj_meta) > 0:            
-            obj_meta = np.stack(obj_meta, 0)
+        obj_meta = np.array(obj_meta)
+        obj_meta = obj_meta.reshape(-1, 9)
 
-            target_bboxes_mask[0:num_instance] = 1
-            target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
-            class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
-            # NOTE: set size class as semantic class. Consider use size2class.
-            size_classes[0:num_instance] = class_ind
-            angle_classes[0:num_instance] = class_ind
-            size_residuals[0:num_instance, :] = \
-                                                target_bboxes[0:num_instance, 3:6] - DC.mean_size_arr[class_ind,:]
-            #angle_residuals[0:num_instance] = obj_meta[:,6]
+        target_bboxes_mask[0:num_instance] = 1
+        target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
+        class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
+        # NOTE: set size class as semantic class. Consider use size2class.
+        size_classes[0:num_instance] = class_ind
+        size_residuals[0:num_instance, :] = \
+                                            target_bboxes[0:num_instance, 3:6] - DC.mean_size_arr[class_ind,:]
+        # angle_classes[0:num_instance] = class_ind
+        # angle_residuals[0:num_instance] = obj_meta[:,6]
+        for i in range(num_instance):
+            angle_class, angle_residual = DC.angle2class2(obj_meta[i, 6])
+            angle_classes[i] = angle_class
+            angle_residuals[i] = angle_residual
+            assert np.abs(DC.class2angle2(angle_class, angle_residual) - obj_meta[i, 6]) < 1e-6
+
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
         point_votes_corner = np.tile(point_votes_corner, (1, 3)) # make 3 votes identical
@@ -435,10 +447,11 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['size_class_label'] = size_classes.astype(np.int64)
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
         
-        #target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
-        #target_bboxes_semcls[0:num_instance] = \
-        #    [DC.nyu40id2class[x] for x in obj_meta[:,-1][0:obj_meta.shape[0]]]                
-        #ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
+        target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
+        target_bboxes_semcls[0:num_instance] = \
+            [DC.nyu40id2class[x] for x in obj_meta[:,-1][0:obj_meta.shape[0]]]                
+        ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
+
         ret_dict['point_sem_cls_label'] = point_sem_label.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
@@ -580,8 +593,8 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
 
     
 if __name__=='__main__': 
-    dset = ScannetDetectionDataset(use_height=True, num_points=40000)
-    for i_example in range(1000):
+    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=True)
+    for i_example in range(1513):
         example = dset.__getitem__(i_example)
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
         pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'], 'pc_sem_{}.ply'.format(str(i_example)),  18)
@@ -600,6 +613,7 @@ if __name__=='__main__':
         #viz_votes(example['point_clouds'], example['vote_label_support_offset'],example['vote_label_mask_support'],name=str(i_example)+'support_offset')
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_offset'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_offset')
         import pdb;pdb.set_trace()
+
         """
         viz_obb(pc=example['point_clouds'], label=example['center_label'],
             mask=example['box_label_mask'],
