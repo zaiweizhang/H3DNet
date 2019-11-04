@@ -331,7 +331,7 @@ class ScannetDetectionDataset(Dataset):
                 
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
-                point_sem_label[ind] = DC.nyu40id2class[meta[-1]]
+                point_sem_label[ind] = DC.nyu40id2class_sem[meta[-1]]
                 
                 xtemp = np.stack([x]*len(corners))
                 dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
