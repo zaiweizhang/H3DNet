@@ -242,24 +242,25 @@ def point_cloud_to_volume(points, vsize, radius=1.0):
     locations = locations.astype(int)
     vol[locations[:,0],locations[:,1],locations[:,2]] = 1.0
     return vol
+def volume_to_point_cloud(vol, thres =0.1):
+  """ vol is occupancy grid (value = 0 or 1) of size vsize*vsize*vsize
+      return Nx3 numpy array.
+  """
+  vx = vol.shape[0]
+  vy = vol.shape[1]
+  vz = vol.shape[2]
+  points = []
 
-def volume_to_point_cloud(vol):
-    """ vol is occupancy grid (value = 0 or 1) of size vsize*vsize*vsize
-        return Nx3 numpy array.
-    """
-    vsize = vol.shape[0]
-    assert(vol.shape[1] == vsize and vol.shape[1] == vsize)
-    points = []
-    for a in range(vsize):
-        for b in range(vsize):
-            for c in range(vsize):
-                if vol[a,b,c] == 1:
-                    points.append(np.array([a,b,c]))
-    if len(points) == 0:
-        return np.zeros((0,3))
-    points = np.vstack(points)
-    return points
-
+  for a in range(vx):
+    for b in range(vy):
+      for c in range(vz):
+        if vol[a, b, c]>thres:
+          points.append(np.array([a, b, c]))
+          # points.append(np.array([a+random.random(), b+random.random(), c+random.random()]))
+  if len(points) == 0:
+    return np.zeros((0, 3))
+  points = np.vstack(points)
+  return points
 def point_cloud_to_volume_v2_batch(point_clouds, vsize=12, radius=1.0, num_sample=128):
     """ Input is BxNx3 a batch of point cloud
         Output is BxVxVxVxnum_samplex3
