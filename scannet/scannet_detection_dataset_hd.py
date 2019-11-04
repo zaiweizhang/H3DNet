@@ -105,7 +105,8 @@ class ScannetDetectionDataset(Dataset):
     def __init__(self, split_set='train', num_points=20000, center_dev=2.0, corner_dev=1.0,
                  use_color=False, use_height=False, augment=False, vsize=0.06, use_tsdf=0, use_18cls=1):
 
-        self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
+        # self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
+        self.data_path = os.path.join('/scratch/cluster/yanght/Dataset/', 'scannet_train_detection_data')
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
         if split_set=='all':            
