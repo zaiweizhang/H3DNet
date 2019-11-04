@@ -26,6 +26,7 @@ from backbone_module_decoder import Pointnet2BackboneDecoder
 from backbone_module_dis import Pointnet2BackboneDis
 
 from voting_module import VotingModule
+from voting_module_point import VotingPointModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
 from proposal_module import ProposalModule
@@ -95,9 +96,14 @@ class HDNet(nn.Module):
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
         self.vgen = VotingModule(self.vote_factor, 256+256)
+        self.vgen_point = VotingPointModule(self.vote_factor, 256+256)
         self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+256)
         #self.vgen = MeanShiftModule(self.vote_factor, 256)    
         self.vgen_voxel = TwoStreamNetDecoder()
+
+        # Vote aggregation and detection
+        self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+            mean_size_arr, num_proposal, sampling)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -157,10 +163,17 @@ class HDNet(nn.Module):
         '''
         features_combine = torch.cat((features, features_plane), 1)
         '''
-        voted_xyz, voted_xyz_corner = self.vgen(xyz, features_combine_point)
+        proposal_xyz, proposal_features = self.vgen(xyz, features_combine_point)
+        
+        proposal_features_norm = torch.norm(proposal_features, p=2, dim=1)
+        proposal_features = proposal_features.div(proposal_features_norm.unsqueeze(1))
+        end_points['vote_xyz'] = proposal_xyz
+        end_points['vote_features'] = proposal_features
+        
+        voted_xyz, voted_xyz_corner = self.vgen_point(xyz, features_combine_point)
         #features_norm = torch.norm(features, p=2, dim=1)
         #features = features.div(features_norm.unsqueeze(1))
-        end_points['vote_xyz'] = voted_xyz
+        end_points['vote_xyz_center'] = voted_xyz
         end_points['vote_xyz_corner'] = voted_xyz_corner
 
         end_points = self.vgen_voxel(features_combine_vox, end_points)
@@ -195,6 +208,7 @@ class HDNet(nn.Module):
         net_sem = self.conv_sem2(net_sem)
         end_points["pred_sem_class"] = net_sem
 
+        end_points = self.pnet(proposal_xyz, proposal_features, end_points)
         """
         if end_points['use_support']:
             end_points = self.pnet(xyz_support, features_support, end_points, mode='_support')

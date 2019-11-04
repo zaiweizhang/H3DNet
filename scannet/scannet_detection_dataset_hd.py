@@ -231,6 +231,7 @@ class ScannetDetectionDataset(Dataset):
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_cloud[:,0] = -1 * point_cloud[:,0]
+                plane_vertices[:,0] = -1 * plane_vertices[:,0]
                 # target_bboxes[:,0] = -1 * target_bboxes[:,0]                
                 meta_vertices[:, 0] = -1 * meta_vertices[:, 0]                
                 meta_vertices[:, 6] = -1 * meta_vertices[:, 6]
@@ -238,7 +239,8 @@ class ScannetDetectionDataset(Dataset):
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 point_cloud[:,1] = -1 * point_cloud[:,1]
-                # target_bboxes[:,1] = -1 * target_bboxes[:,1]                                
+                plane_vertices[:,1] = -1 * plane_vertices[:,1]
+                # target_bboxes[:,1] = -1 * target_bboxes[:,1]
                 meta_vertices[:, 1] = -1 * meta_vertices[:, 1]
                 meta_vertices[:, 6] = -1 * meta_vertices[:, 6]
             
@@ -246,6 +248,7 @@ class ScannetDetectionDataset(Dataset):
             rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
             rot_mat = pc_util.rotz(rot_angle)
             point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
+            plane_vertices[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_vertices[:,0:3])))
             meta_vertices[:, :6] = rotate_aligned_boxes(meta_vertices[:, :6], rot_mat)
             meta_vertices[:, 6] += rot_angle
         # load voxel data 
@@ -257,7 +260,7 @@ class ScannetDetectionDataset(Dataset):
         # corner_vox = pc_util.get_oriented_corners(bbx_for_vox) # with angle
         vox_corner = pc_util.point_to_volume_gaussion(corner_vox, dev=self.corner_dev)
         
-        # ------------------------------- SUPPORT RELATION ------------------------------
+        # ------------------------------- Plane and point ------------------------------
         # compute votes *AFTER* augmentation
         # generate votes
         # Note: since there's no map between bbox instance labels and
@@ -352,10 +355,13 @@ class ScannetDetectionDataset(Dataset):
                         temp_ind = np.where(plane_indicator == p)[0]
                         if len(temp_ind) > 10:
                             plane_ind.append(ind[temp_ind])
+                            ### Normalize the vector here
+                            ### May need to change later
+                            #plane_vertices[ind[temp_ind],:4] = plane_vertices[ind[temp_ind],:4] / np.linalg.norm(plane_vertices[ind[temp_ind][0],:3])
                 if len(plane_ind) > 0:
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
-                    plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4] #/ np.expand_dims(plane_vertices[plane_ind,3], -1)
+                    #plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4]# / np.linalg.norm(plane_vertices[plane_ind[0],:], -1)
                     plane_lower = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
                     #plane_upper = leastsq(residuals, plane_lower, args=(None, np.array([corners[1], corners[3], corners[5], corners[7]]).T))[0]
                     para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
@@ -520,7 +526,7 @@ def viz_plane(point_planes, point_planes_mask, name=''):
     """
     inds = (point_planes_mask==1)
     pc_plane = point_planes[inds,:]
-    cmap = pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,3:], 'pc_obj_planes{}.ply'.format(name))
+    cmap = pc_util.write_ply_color_multi(pc_plane[:,:3], pc_plane[:,4:], 'pc_obj_planes{}.ply'.format(name))
     return cmap
 
 def viz_plane_perside(point_planes, point_planes_mask, name=''):
@@ -608,7 +614,7 @@ if __name__=='__main__':
     for i_example in range(1513):
         example = dset.__getitem__(i_example)
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
-        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'], 'pc_sem_{}.ply'.format(str(i_example)),  18)
+        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'], 'pc_sem_{}.ply'.format(str(i_example)),  19)
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
         viz_votes(example['point_clouds'], example['vote_label_corner'],
