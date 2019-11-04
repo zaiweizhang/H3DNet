@@ -718,6 +718,247 @@ def write_lines_as_cylinders(pcl, filename, rad=0.005, res=64):
     mesh_list = trimesh.util.concatenate(scene.dump())
     trimesh.io.export.export_mesh(mesh_list, f'{filename}.ply', file_type='ply')
 
+    
+
+def compute_iou_pc(pc1, pc2):
+    v1 = point_cloud_to_volume_batch(pc1, 48)
+    v2 = point_cloud_to_volume_batch(pc2, 48)
+    iou = 0.0
+    for i in range(pc1.shape[0]):
+        iou += torch.sum(v1[i]*v2[i]).float()/torch.sum(v1[i]+v2[i]-v1[i]*v2[i]).float()
+    iou = iou/pc1.shape[0]
+    return iou
+
+def volume_to_point_cloud_color(vol, mini=0):
+  vx = vol.shape[0]
+  vy = vol.shape[1]
+  vz = vol.shape[2]
+  points = []
+  labels = []
+  for a in range(vx):
+    for b in range(vy):
+      for c in range(vz):
+        if vol[a, b, c]>0.05:
+          points.append(np.array([a, b, c]))
+          labels.append(vol[a,b,c])
+  labels = (np.array(labels, np.float32)-mini)
+  
+  if len(points) == 0:
+    return np.zeros((0, 3))
+  points = np.vstack(points)
+  
+  return points, labels
+
+def multichannel_volume_to_point_cloud(vol):
+  num_classes = vol.shape[0]
+  pts=np.zeros((0,3))
+  pt_labels=np.zeros(0)
+  
+  for i in range(1, num_classes):
+    pt_i = volume_to_point_cloud(vol[i])
+    pts = np.concatenate((pts, pt_i), axis=0)
+    pt_labels = np.concatenate((pt_labels, np.ones(pt_i.shape[0])*i))
+  pts = np.array(pts, np.float32)
+  pt_labels=np.array(pt_labels, np.int32)
+  return pts, pt_labels   
+
+def volume_pt_to_pt(vpt, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+  pt = vpt*vs
+  pt[:,0] = pt[:,0]+xymin
+  pt[:,1] = pt[:,1]+xymin
+  pt[:,2] = pt[:,2]+zmin
+  return pt
+  
+def process_bbx(bbx, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  center = bbx[:,0:3]
+  #clip to min max range
+  crop_idxs = []
+  for i in range(bbx.shape[0]):
+    if center[i, 0]>xymin and center[i, 0]<xymax:
+      if center[i, 1]>xymin and center[i, 1]<xymax:
+        if center[i, 2]>zmin and center[i, 2]<zmax:
+          crop_idxs.append(i)
+  new_bbx = bbx[crop_idxs]
+  new_center = new_bbx[:,0:3]
+  new_scale = new_bbx[:,3:6]
+  new_center[:,0] = new_center[:,0]-xymin
+  new_center[:,1] = new_center[:,1]-xymin
+  new_center[:,2] = new_center[:,2]-zmin
+  new_center = new_center/vs
+  new_scale = new_scale/vs
+  new_bbx[:,0:3] = new_center
+  new_bbx[:,3:6] = new_scale
+  return new_bbx
+
+def get_corner(bbx,  vs=0.06,xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+  corners = np.zeros((bbx.shape[0], 8 ,3))
+  vxy = int(xymax-xymin)/vs
+  vz = int(zmax-zmin)/vs
+  for i in range(bbx.shape[0]):
+    center = bbx[i, 0:3]
+    scale = bbx[i, 3:6]/2.0
+    corners[i,0] = [center[0]-scale[0], center[1]-scale[1], center[2]-scale[2]]
+    corners[i,1] = [center[0]-scale[0], center[1]-scale[1], center[2]+scale[2]]
+    corners[i,2] = [center[0]-scale[0], center[1]+scale[1], center[2]-scale[2]]
+    corners[i,3] = [center[0]-scale[0], center[1]+scale[1], center[2]+scale[2]]
+    corners[i,4] = [center[0]+scale[0], center[1]-scale[1], center[2]-scale[2]]
+    corners[i,5] = [center[0]+scale[0], center[1]-scale[1], center[2]+scale[2]]
+    corners[i,6] = [center[0]+scale[0], center[1]+scale[1], center[2]-scale[2]]
+    corners[i,7] = [center[0]+scale[0], center[1]+scale[1], center[2]+scale[2]]
+  corners = np.reshape(corners, (-1, 3))
+  crop_ids = []
+  for i in range(corners.shape[0]):
+    if corners[i,0]>-1 and corners[i,0]<vxy and corners[i,1]>-1 and corners[i,1]<vxy and corners[i,2]>-1 and corners[i,2]<vz:
+      crop_ids.append(i)
+  corners = corners[crop_ids]      
+  return corners
+
+def params2bbox(bbx):
+    ''' from bbox_center, angle and size to bbox
+    @Args:
+        center: (3)
+        x/y/zsize: scalar
+        angle: -pi ~ pi
+    @Returns:
+        bbox: 8 x 3, order:
+         [[xmin, ymin, zmin], [xmin, ymin, zmax], [xmin, ymax, zmin], [xmin, ymax, zmax],
+          [xmax, ymin, zmin], [xmax, ymin, zmax], [xmax, ymax, zmin], [xmax, ymax, zmax]]
+    '''
+    center = bbx[0:3]
+    xsize = bbx[3]
+    ysize = bbx[4]
+    zsize = bbx[5]
+    angle = bbx[6]
+    vx = np.array([np.cos(angle), np.sin(angle), 0])
+    vy = np.array([-np.sin(angle), np.cos(angle), 0])
+    vx = vx * np.abs(xsize) / 2
+    vy = vy * np.abs(ysize) / 2
+    vz = np.array([0, 0, np.abs(zsize) / 2])
+    bbox = np.array([\
+        center - vx - vy - vz, center - vx - vy + vz,
+        center - vx + vy - vz, center - vx + vy + vz,
+        center + vx - vy - vz, center + vx - vy + vz,
+        center + vx + vy - vz, center + vx + vy + vz])
+    return bbox
+
+def get_oriented_corners(oriented_bbx, vs=0.06, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.68):
+  # corners in origin scale
+  corners = np.zeros((oriented_bbx.shape[0], 8,3))
+  for i in range(oriented_bbx.shape[0]):
+    corners[i] = params2bbox(oriented_bbx[i])
+  # rescale to voxel space
+  corners = np.reshape(corners, (-1, 3)) 
+  crop_ids= []
+  for i in range(corners.shape[0]):
+    if corners[i,0]>xymin and corners[i,0]<xymax and corners[i,1]>xymin and corners[i,1]<xymax and corners[i,2]>zmin and corners[i,2]<zmax:
+      crop_ids.append(i)
+  corners=corners[crop_ids]
+  corners[:,0] = corners[:,0]-xymin
+  corners[:,1] = corners[:,1]-xymin
+  corners[:,2] = corners[:,2]-zmin
+  corners = corners/vs
+  return corners
+
+def gaussian_3d(x_mean, y_mean, z_mean, vxy, vz, dev=2.0):
+  x, y, z = np.meshgrid(np.arange(vxy), np.arange(vxy), np.arange(vz))
+  #z=(1.0/(2.0*np.pi*dev*dev))*np.exp(-((x-x_mean)**2+ (y-y_mean)**2)/(2.0*dev**2))
+  m=np.exp(-((x-x_mean)**2 + (y-y_mean)**2+(z-z_mean)**2)/(2.0*dev**2))
+  return m
+
+def point_to_volume_gaussion(points, dev=2.0, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  vol=np.zeros((vxy,vxy,vz), dtype=np.float32)
+  locations = points.astype(int)
+  locations = np.clip(locations, 0, vxy-1)
+  locations[:,2] = np.clip(locations[:,2], 0, vz-1)
+  for i in range(points.shape[0]):
+    if locations[i,0]==64 and locations[i,1]==64:
+      continue
+    vol+=gaussian_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
+  # vol[locations[:, 0], locations[:, 1], locations[:, 2]] = 1.0
+  return vol
+
+def center_to_volume_gaussion(bbx, dev=2.0, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  points = bbx[:,0:3]
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  vol=np.zeros((vxy,vxy,vz), dtype=np.float32)
+  locations = points.astype(int)
+  locations = np.clip(locations, 0, vxy-1)
+  locations[:,2] = np.clip(locations[:,2], 0, vz-1)
+  for i in range(points.shape[0]):
+    if locations[i,0]==64 and locations[i,1]==64:
+      continue
+    vol+=gaussian_3d(locations[i, 1], locations[i, 0], locations[i, 2], vxy, vz, dev=dev)
+  return vol
+
+def point_cloud_to_voxel_scene(pt, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  pt, crop_ids = crop_point_cloud(pt)
+  pt[:,0] = pt[:,0]-xymin
+  pt[:,1] = pt[:,1]-xymin
+  pt[:,2] = pt[:,2]-zmin
+  pt = pt/vs
+  locations = pt.astype(np.int32)
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  locations = np.clip(locations, 0, vxy-1)
+  locations[:,2] = np.clip(locations[:,2], 0, vz-1)
+  vox = np.zeros((vxy, vxy, vz))
+  vox[locations[:,0], locations[:,1], locations[:,2]]=1.0
+  return vox
+
+def crop_point_cloud(pt,xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  crop_ids=[]
+  for i in range(pt.shape[0]):
+    if pt[i,0]>xymin and pt[i,0]<xymax and pt[i,1]>xymin and pt[i,1]<xymax and pt[i,2]>zmin and pt[i,2]<zmax:
+      crop_ids.append(i)
+  pt = pt[crop_ids]
+  return pt, crop_ids
+
+def point_cloud_to_sem_vox(pt, sem_label, vs=0.06,xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+  pt[:,0]=pt[:,0]-xymin
+  pt[:,1]=pt[:,1]-xymin
+  pt[:,2]=pt[:,2]-zmin
+  pt=pt/vs
+  vxy=int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  pt = np.clip(pt, 0,vxy-1)
+  pt[:,2] = np.clip(pt[:,2], 0,vz-1)
+  vol=np.zeros((vxy,vxy,vz), np.float32)
+  pt = pt.astype(np.int32)
+  for i in range(pt.shape[0]):
+    if sem_label[i] not in choose_classes:
+      continue
+    vol[pt[i,0], pt[i,1], pt[i,2]]=np.argwhere(choose_classes==sem_label[i])[0,0]+1
+  return vol
+     
+def read_tsdf(filename):
+  f = open(filename, 'rb')
+  fileContent = f.read()
+
+  A = struct.unpack("<3f", fileContent[:12])
+  A = np.array(A, np.int32)
+  # print(A)
+  s1 = A[2]
+  s2 = A[0]
+  s3 = A[1]
+  size = int(A[0]*A[1]*A[2])
+  s = "<%df"%(int(size))
+  TDF = struct.unpack(s, fileContent[12:12+size*4])
+
+  out = np.zeros((s1, s2, s3))
+  for i in range(s1):
+    t = np.transpose(np.reshape(TDF[i*s2*s3: (i+1)*s2*s3], (s3, s2)))
+    out[i] = t
+
+  out = np.transpose(out, (1,2,0))
+
+  out = out[20:-20, 20:-20, 20:-20]
+  return out 
+
+
+    
 # ----------------------------------------
 # Testing
 # ----------------------------------------
