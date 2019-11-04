@@ -332,7 +332,39 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
     for i in range(len(seed_gt_lower_rot)):
         #sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper_rot[i,...], 'gt_off_upper': seed_gt_upper_off[i,...], 'gt_rot_lower': seed_gt_lower_rot[i,...], 'gt_off_lower': seed_gt_lower_off[i,...], 'gt_rot_right': seed_gt_right_rot[i,...], 'gt_off_right': seed_gt_right_off[i,...], 'gt_rot_left': seed_gt_left_rot[i,...], 'gt_off_left': seed_gt_left_off[i,...], 'gt_rot_front': seed_gt_front_rot[i,...], 'gt_off_front': seed_gt_front_off[i,...], 'gt_rot_back': seed_gt_back_rot[i,...], 'gt_off_back': seed_gt_back_off[i,...], 'rot_upper': end_points['upper_rot'][i,...].detach().cpu().numpy(), 'off_upper': end_points['upper_off'][i,...].detach().cpu().numpy(), 'rot_lower': end_points['lower_rot'][i,...].detach().cpu().numpy(), 'off_lower': end_points['lower_off'][i,...].detach().cpu().numpy(), 'rot_front': end_points['front_rot'][i,...].detach().cpu().numpy(), 'off_front': end_points['front_off'][i,...].detach().cpu().numpy(), 'rot_back': end_points['back_rot'][i,...].detach().cpu().numpy(), 'off_back': end_points['back_off'][i,...].detach().cpu().numpy(), 'rot_left': end_points['left_rot'][i,...].detach().cpu().numpy(), 'off_left': end_points['left_off'][i,...].detach().cpu().numpy(), 'rot_right': end_points['right_rot'][i,...].detach().cpu().numpy(), 'off_right': end_points['right_off'][i,...].detach().cpu().numpy()})
         sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper[i,...], 'gt_lower': seed_gt_lower[i,...], 'gt_right': seed_gt_right[i,...], 'gt_left': seed_gt_left[i,...], 'gt_front': seed_gt_front[i,...], 'gt_back': seed_gt_back[i,...], 'pred_upper': pred_upper[i,...], 'pred_lower': pred_lower[i,...], 'pred_front': pred_front[i,...], 'pred_back': pred_back[i,...], 'pred_left': pred_left[i,...], 'pred_right': pred_right[i,...]})
-    
+     # Voxel cues
+#     vis_out = 'voxel_test'
+#     if not os.path.exists(vis_out):
+#         os.makedirs(vis_out)
+    sem_path =  '/tmp2/bosun/data/scannet/scannet_train_detection_data_vox/'
+    pred_center_vox = end_points['vox_pred1']
+    pred_corner_vox = end_points['vox_pred2']
+    for i in range(pred_center_vox.shape[0]):
+        name = end_points['scan_name'][i]
+        center = pc_util.volume_to_point_cloud(pred_center_vox.detach().cpu().numpy()[i,0])
+        corner = pc_util.volume_to_point_cloud(pred_corner_vox.detach().cpu().numpy()[i,0])
+        if center.shape[0]==0:
+            continue
+        pt_center = pc_util.get_pred_pts(center, vsize=0.06, eps=2)
+        pt_corner = pc_util.get_pred_pts(corner, vsize=0.06, eps=2)
+        crop_ids = []
+        for j in range(pt_center.shape[0]):
+            if pt_center[j,0]<100:
+              crop_ids.append(j)
+        pt_center = pt_center[crop_ids]
+        crop_ids=[]
+        for j in range(pt_corner.shape[0]):
+            if pt_corner[j,0]<100:
+                crop_ids.append(j)
+        pt_corner=pt_corner[crop_ids]
+        print(pt_center.shape, pt_corner.shape)
+        sem = np.load(os.path.join(sem_path, name+'_sem_pt.npy'))
+        center_label = pc_util.point_add_sem_label(pt_center, sem, k=10)
+        corner_label = pc_util.point_add_sem_label(pt_corner, sem, k=10)
+        sio.savemat(os.path.join(dump_dir, name+'_center_0.06_vox.mat'), {'center_vox': pt_center, 'center_label':center_label})
+        sio.savemat(os.path.join(dump_dir, name+'_corner_0.06_vox.mat'), {'corner_vox': pt_corner, 'corner_label':corner_label})
+
+
 
     
     
