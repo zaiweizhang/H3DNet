@@ -102,7 +102,7 @@ def find_idx(targetbb, selected_centers, selected_centers_support, selected_cent
 
 class ScannetDetectionDataset(Dataset):
        
-    def __init__(self, split_set='train', num_points=20000,
+    def __init__(self, split_set='train', num_points=20000, center_dev=2.0, corner_dev=1.0,
                  use_color=False, use_height=False, augment=False, vsize=0.06, use_tsdf=0, use_18cls=1):
 
         self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
@@ -132,6 +132,8 @@ class ScannetDetectionDataset(Dataset):
 
         ### Vox parameters
         self.vsize = vsize
+        self.center_dev = center_dev
+        self.corner_dev = corner_dev
         self.use_tsdf = use_tsdf
         self.use_18cls = use_18cls
         
@@ -164,6 +166,7 @@ class ScannetDetectionDataset(Dataset):
         meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
 
         ### Load voxel data
+        """
         sem_vox=np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_sem.npy'))
         vox = np.array(sem_vox>0,np.float32)
         if self.use_tsdf:
@@ -175,7 +178,7 @@ class ScannetDetectionDataset(Dataset):
         else:
             vox_center = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_center.npy'))
             vox_corner = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_corner.npy'))
-        
+        """
         instance_labels = meta_vertices[:,-2]
         semantic_labels = meta_vertices[:,-1]
         #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
@@ -245,7 +248,15 @@ class ScannetDetectionDataset(Dataset):
             point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
             meta_vertices[:, :6] = rotate_aligned_boxes(meta_vertices[:, :6], rot_mat)
             meta_vertices[:, 6] += rot_angle
-
+        # load voxel data 
+        vox = pc_util.point_cloud_to_voxel_scene(point_cloud[:,0:3])
+        bbx_for_vox = np.unique(meta_vertices, axis=0)
+        bbx_for_vox_processed = pc_util.process_bbx(bbx_for_vox)
+        vox_center = pc_util.center_to_volume_gaussion(bbx_for_vox_processed, dev=self.center_dev)
+        corner_vox = pc_util.get_corner(bbx_for_vox_processed) # without angle 
+        # corner_vox = pc_util.get_oriented_corners(bbx_for_vox) # with angle
+        vox_corner = pc_util.point_to_volume_gaussion(corner_vox, dev=self.corner_dev)
+        
         # ------------------------------- SUPPORT RELATION ------------------------------
         # compute votes *AFTER* augmentation
         # generate votes
@@ -485,7 +496,7 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['scan_name'] = scan_name
 
         ret_dict['voxel'] =np.expand_dims(vox.astype(np.float32), 0)
-        ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
+#         ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
         ret_dict['vox_center'] = np.expand_dims(np.array(vox_center, np.float32), 0)
         ret_dict['vox_corner'] = np.expand_dims(np.array(vox_corner, np.float32), 0)
         
