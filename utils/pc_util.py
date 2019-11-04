@@ -11,7 +11,10 @@ Author: Charles R. Qi and Or Litany
 import os
 import sys
 import torch
-
+from sklearn.neighbors import NearestNeighbors
+from scipy import stats
+from sklearn.cluster import DBSCAN
+from sklearn import metrics
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
@@ -763,7 +766,7 @@ def multichannel_volume_to_point_cloud(vol):
   pt_labels=np.array(pt_labels, np.int32)
   return pts, pt_labels   
 
-def volume_pt_to_pt(vpt, vs=0.025, xymin=-3.2, xymax=3.2, zmin=-0.1, zmax=2.32):
+def volume_pt_to_pt(vpt, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   pt = vpt*vs
   pt[:,0] = pt[:,0]+xymin
   pt[:,1] = pt[:,1]+xymin
@@ -791,7 +794,7 @@ def process_bbx(bbx, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   new_bbx[:,3:6] = new_scale
   return new_bbx
 
-def get_corner(bbx,  vs=0.06,xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def get_corner(bbx,  vs=0.06,xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   corners = np.zeros((bbx.shape[0], 8 ,3))
   vxy = int(xymax-xymin)/vs
   vz = int(zmax-zmin)/vs
@@ -842,7 +845,7 @@ def params2bbox(bbx):
         center + vx + vy - vz, center + vx + vy + vz])
     return bbox
 
-def get_oriented_corners(oriented_bbx, vs=0.06, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.68):
+def get_oriented_corners(oriented_bbx, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   # corners in origin scale
   corners = np.zeros((oriented_bbx.shape[0], 8,3))
   for i in range(oriented_bbx.shape[0]):
@@ -957,7 +960,18 @@ def read_tsdf(filename):
 
   out = out[20:-20, 20:-20, 20:-20]
   return out 
-
+  
+def point_add_sem_label(pt, sem, k=10):
+    sem_pt = sem[:, 0:3]
+    sem_label = sem[:,3]
+    pt_label = np.zeros(pt.shape[0])
+    nbrs = NearestNeighbors(n_neighbors=k,algorithm='ball_tree').fit(sem_pt)
+    distances, indices = nbrs.kneighbors(pt)
+    for i in range(pt.shape[0]):
+        labels = sem_label[indices[i]]
+        l, count = stats.mode(labels, axis=None)
+        pt_label[i] = l
+    return pt_label
 
     
 # ----------------------------------------
