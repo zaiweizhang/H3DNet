@@ -241,7 +241,10 @@ def train_one_epoch():
     stat_dict = {} # collect statistics
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step() # decay BN momentum
-    net.train() # set model to training mode
+    if FLAGS.get_data == True:
+        net.eval() # set model to training mode
+    else:
+        net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for i in range(len(batch_data_label['num_instance'])):
             if batch_data_label['num_instance'][i] == 0:
@@ -266,8 +269,9 @@ def train_one_epoch():
             #optimize_proposal(inputs, end_points)
             dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
-        loss.backward()
-        optimizer.step()
+        if FLAGS.get_data == False:
+            loss.backward()
+            optimizer.step()
 
         # Accumulate statistics and print out
         for key in end_points:
