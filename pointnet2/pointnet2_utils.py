@@ -384,7 +384,8 @@ class GroupAll(nn.Module):
         # type: (GroupAll, bool) -> None
         super(GroupAll, self).__init__()
         self.use_xyz = use_xyz
-
+        self.ret_grouped_xyz = ret_grouped_xyz
+        
     def forward(self, xyz, new_xyz, features=None):
         # type: (GroupAll, torch.Tensor, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor]
         r"""
@@ -404,6 +405,7 @@ class GroupAll(nn.Module):
         """
 
         grouped_xyz = xyz.transpose(1, 2).unsqueeze(2)
+
         if features is not None:
             grouped_features = features.unsqueeze(2)
             if self.use_xyz:
