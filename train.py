@@ -352,9 +352,9 @@ def evaluate_one_epoch():
                 total_cls[cls] += np.sum(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1)
             total_correct_sem += np.sum(pre_sem == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
             total_sem += len(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
-        #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         if FLAGS.dump_results and batch_idx == 0:# and EPOCH_CNT %10 == 0:
