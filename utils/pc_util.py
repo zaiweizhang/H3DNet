@@ -869,7 +869,35 @@ def gaussian_3d(x_mean, y_mean, z_mean, vxy, vz, dev=2.0):
   m=np.exp(-((x-x_mean)**2 + (y-y_mean)**2+(z-z_mean)**2)/(2.0*dev**2))
   return m
 
-def point_to_volume_gaussion(points, dev=2.0, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
+def point_to_volume_gaussion(points, dev=2.0, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68, ksize=11):
+  vxy = int((xymax-xymin)/vs)
+  vz = int((zmax-zmin)/vs)
+  vol=np.zeros((vxy,vxy,vz), dtype=np.float32)
+  locations = points.astype(int)
+  locations = np.clip(locations, 0, vxy-1)
+  locations[:,2] = np.clip(locations[:,2], 0, vz-1)
+
+  vxyc = int(vxy/2)
+  vzc = int(vz/2)
+  k2 = int((ksize - 1)/2)
+  gauss = gaussian_3d(k2, k2, k2, ksize, ksize, dev=dev)
+
+  for i in range(points.shape[0]):
+    if locations[i,0]==64 and locations[i,1]==64:
+      continue
+    xmin = np.maximum(0, locations[i, 0] - k2)
+    xmax = np.minimum(vxy - 1, locations[i, 0] + k2)
+    ymin = np.maximum(0, locations[i, 1] - k2)
+    ymax = np.minimum(vxy - 1, locations[i, 1] + k2)
+    zmin = np.maximum(0, locations[i, 2] - k2)
+    zmax = np.minimum(vz - 1, locations[i, 2] + k2)
+    vol[xmin:xmax+1, ymin:ymax+1, zmin:zmax+1] += gauss[k2-locations[i, 0]+xmin : k2-locations[i, 0]+xmax+1,\
+                                                  k2-locations[i, 1]+ymin : k2-locations[i, 1]+ymax+1,\
+                                                  k2-locations[i, 2]+zmin : k2-locations[i, 2]+zmax+1] 
+  return vol
+
+
+def point_to_volume_gaussion_dep(points, dev=2.0, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   vxy = int((xymax-xymin)/vs)
   vz = int((zmax-zmin)/vs)
   vol=np.zeros((vxy,vxy,vz), dtype=np.float32)
