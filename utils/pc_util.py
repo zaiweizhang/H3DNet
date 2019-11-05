@@ -733,7 +733,7 @@ def compute_iou_pc(pc1, pc2):
     iou = iou/pc1.shape[0]
     return iou
 
-def volume_to_point_cloud_color(vol, mini=0):
+def volume_to_point_cloud_color(vol, thres=0.1, mini=0):
   vx = vol.shape[0]
   vy = vol.shape[1]
   vz = vol.shape[2]
@@ -742,7 +742,7 @@ def volume_to_point_cloud_color(vol, mini=0):
   for a in range(vx):
     for b in range(vy):
       for c in range(vz):
-        if vol[a, b, c]>0.05:
+        if vol[a, b, c]>thres:
           points.append(np.array([a, b, c]))
           labels.append(vol[a,b,c])
   labels = (np.array(labels, np.float32)-mini)
