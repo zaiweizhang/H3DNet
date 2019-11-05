@@ -160,16 +160,19 @@ class HDNet(nn.Module):
         end_points['seed_features'+'sem'] = features_sem
         
         #features_combine_point = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
+        #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
+        features_combine_point = torch.cat((features, features_plane, features_vox), 1)
         features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
         features_combine_sem_vox = torch.cat((features_sem, features_vox.detach()), 1)
         features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
         #features_combine_sem = torch.cat((features.detach(), features_plane.detach(), features_sem), 1)
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
+        #features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
+        features_combine_plane = torch.cat((features, features_plane, features_vox), 1)
         allfeat = torch.cat((xyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
         features_other_vox = pc_util.pt_to_voxel_feature_batch(allfeat)
-        features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox.detach()), 1)
+        #features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox.detach()), 1)
+        features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox), 1)
         #features_combine_vox = end_points['vox_latent_feature']
 
         '''

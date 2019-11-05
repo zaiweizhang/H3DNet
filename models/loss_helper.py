@@ -609,10 +609,11 @@ def get_loss(end_points, config):
     end_points['box_loss'] = box_loss
     
     # Final loss function
-    loss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
-    loss *= 10
-    end_points['init_proposal_loss'] = loss
-    end_points['loss'] += loss ### Add the initial proposal loss term
+    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
+    proposalloss *= 10
+    loss += proposalloss
+    end_points['init_proposal_loss'] = proposalloss
+    end_points['loss'] = loss ### Add the initial proposal loss term
         
     # --------------------------------------------
     # Some other statistics
