@@ -346,10 +346,11 @@ def evaluate_one_epoch():
         corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
         for i in range(len(batch_data_label['num_instance'])):
+            pre_sem = end_points['pred_sem_class'][i,0,...].cpu().numpy()
             for cls in DATASET_CONFIG.class2type.keys():
-                correct_cls[cls] += np.sum((np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy())) & (np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1))
+                correct_cls[cls] += np.sum((pre_sem == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy())) & (np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1))
                 total_cls[cls] += np.sum(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()) == cls+1)
-            total_correct_sem += np.sum(np.argmax(end_points['pred_sem_class'][i,:].transpose(0,1).cpu().numpy(), axis=1) == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
+            total_correct_sem += np.sum(pre_sem == np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
             total_sem += len(np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy()))
         #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
         #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 

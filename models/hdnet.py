@@ -87,10 +87,20 @@ class HDNet(nn.Module):
 
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
-        self.conv_sem1 = torch.nn.Conv1d(128+7,128,1) ##Pointfeature + input
+        self.conv_sem1 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
         self.conv_sem2 = torch.nn.Conv1d(128,(num_class+1),1)
         self.bn_sem1 = torch.nn.BatchNorm1d(128)
         self.dropout_sem1 = torch.nn.Dropout(0.5)
+
+        self.conv_sem3 = torch.nn.Conv1d(128+256+7,128,1) ##Pointfeature + input
+        self.conv_sem4 = torch.nn.Conv1d(128,(num_class+1),1)
+        self.bn_sem2 = torch.nn.BatchNorm1d(128)
+        self.dropout_sem2 = torch.nn.Dropout(0.5)
+
+        self.conv_sem5 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
+        self.conv_sem6 = torch.nn.Conv1d(128,(num_class+1),1)
+        self.bn_sem3 = torch.nn.BatchNorm1d(128)
+        self.dropout_sem3 = torch.nn.Dropout(0.5)
         
         # Hough voting
         #self.vgen = VotingModule(self.vote_factor, 256+128)
@@ -150,14 +160,16 @@ class HDNet(nn.Module):
         end_points['seed_features'+'sem'] = features_sem
         
         #features_combine_point = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_point = torch.cat((features, features_plane, features_vox), 1)
-        features_combine_sem = features_sem
+        features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
+        features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
+        features_combine_sem_vox = torch.cat((features_sem, features_vox.detach()), 1)
+        features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
         #features_combine_sem = torch.cat((features.detach(), features_plane.detach(), features_sem), 1)
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
-        features_combine_plane = torch.cat((features, features_plane, features_vox), 1)
+        features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
         allfeat = torch.cat((xyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
         features_other_vox = pc_util.pt_to_voxel_feature_batch(allfeat)
-        features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox), 1)
+        features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox.detach()), 1)
         #features_combine_vox = end_points['vox_latent_feature']
 
         '''
@@ -203,11 +215,20 @@ class HDNet(nn.Module):
         end_points['back_off'] = net_back[:,3,:].contiguous()
 
         ### Semantic Segmentation
-        features_for_sem = torch.cat((features_combine_sem, xyz_plane.transpose(2,1).contiguous()), 1)
+        features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
         net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_for_sem))))
         net_sem = self.conv_sem2(net_sem)
-        end_points["pred_sem_class"] = net_sem
+        end_points["pred_sem_class1"] = net_sem
+        features_for_sem = torch.cat((features_combine_sem_vox, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.dropout_sem2(self.bn_sem2(self.conv_sem3(features_for_sem))))
+        net_sem = self.conv_sem4(net_sem)
+        end_points["pred_sem_class2"] = net_sem
+        features_for_sem = torch.cat((features_combine_sem_plane, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.dropout_sem3(self.bn_sem3(self.conv_sem5(features_for_sem))))
+        net_sem = self.conv_sem6(net_sem)
+        end_points["pred_sem_class3"] = net_sem
 
+        end_points["pred_sem_class"] = torch.stack((torch.argmax(end_points["pred_sem_class1"], 1), torch.argmax(end_points["pred_sem_class2"], 1), torch.argmax(end_points["pred_sem_class3"], 1)), 1)
         end_points = self.pnet(proposal_xyz, proposal_features, end_points)
         """
         if end_points['use_support']:
