@@ -3,7 +3,7 @@ import torch
 import os 
 import sys 
 from utils import *
-
+import time
 
 def one_proposal_opt(cues, init_object, paras):
     opt_object = torch.cat((init_object.reshape(init_object.shape[0], 1), torch.zeros((10,1))), dim=0)
@@ -151,10 +151,14 @@ if __name__=="__main__":
     # cues, gt_objects = load_data(data_path, 100)
     cues, init_proposals = load_data_v2(data_path, 1)
     paras = set_paras()
-    cur_object = init_proposals[99]
+    print (time.asctime( time.localtime(time.time()) ))
+    for i in range(256):
+        print(i)
+        cur_object = init_proposals[i]
     # print(cur_object.shape)
     
     # perturbed_obj = gt_objects[10]+(torch.rand(9)*0.4).double()
     # perturbed_obj = torch.tensor([1.3359,  1.2984,  1.7791,  0.4415,  3.4382,  1.7772,  0.0403, 28.3084, 1.2495])
-    opt_object = one_proposal_opt(cues, cur_object, paras)
-    print(opt_object)
+        opt_object = one_proposal_opt(cues, cur_object, paras)
+        # print(opt_object)
+    print (time.asctime( time.localtime(time.time()) ))

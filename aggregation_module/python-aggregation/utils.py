@@ -95,7 +95,7 @@ def face_2_plane_sqrDis(corners, planes): # (4, 3), (M, 4)
 def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False):
     weight={}
     center, corners = extract_center_corners(cur_object, oriented=oriented)
-    print('extract', center.shape,center.dtype,corners.shape, corners.dtype)
+    # print('extract', center.shape,center.dtype,corners.shape, corners.dtype)
     # center 
     if cues['center_vox'].shape[0]!=0:    
         diff_cen = cues['center_vox']-center # (k, 3)
@@ -103,7 +103,7 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
         if flag==1:
             weight['center_vox'] = ((weight['center_vox']>thres).float())*weight['center_vox']
     else:
-        weight['center_vox'] =0
+        weight['center_vox'] = torch.tensor([0])
         
     diff_cen = cues['center_pn']-center # (k, 3)
     weight['center_pn'] = paras['sigma_center_pn']**2/(paras['sigma_center_pn']**2+torch.sum(diff_cen**2, dim=1))
@@ -126,7 +126,7 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
                 weight['corner_pn'][i] = ((weight['corner_pn'][i]>thres).float())*weight['corner_pn'][i]
     else:
         for i in range(8):
-            weight['corner_vox'][i] = 0
+            weight['corner_vox'][i] = torch.tensor([0])
             diff = cues['corner_pn']-corners[i]
             weight['corner_pn'][i] = paras['sigma_corner_pn']**2/(paras['sigma_corner_pn']**2+torch.sum(diff**2, dim=1))
             if flag==1:
@@ -160,10 +160,10 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
     return weight
 
 def adjust_wegiht(weight, paras):
-    if weight['center_vox']!=0:
+    if torch.sum(weight['center_vox'])!=0:
         weight['center_vox'] = paras['lambda_center_vox']*weight['center_vox']/len(weight['center_vox'])
     weight['center_pn'] = paras['lambda_center_pn']*weight['center_pn']/len(weight['center_pn'])
-    if weight['corner_vox'][0]!=0:
+    if torch.sum(weight['corner_vox'][0])!=0:
         weight['corner_vox'] = paras['lambda_corner_vox']*weight['corner_vox']/(weight['corner_vox'].shape[1])
     weight['corner_pn'] = paras['lambda_corner_pn']*weight['corner_pn']/(weight['corner_pn'].shape[1])
     weight['face_upper'] =  paras['lambda_face_upper']*weight['face_upper']/len(weight['face_upper'])
@@ -258,21 +258,21 @@ def gn_approx_face2plane(corners, J_corners, ids, planes, weights):
     A = torch.zeros((7,7))
     b = torch.zeros((7,1))
     e = 0
-    for i in ids:
-        c =corners[i].unsqueeze(0)
-        J = J_corners[i*3:(i+1)*3] # (3, 7)
-        # print(i)
-        # print(c)
-        # print(J)
-        dis = torch.sum(c*planes[:,0:3], dim=1)+planes[:,3] # K
+    if planes.shape[0]!=0:
+        for i in ids:
+            c =corners[i].unsqueeze(0)
+            J = J_corners[i*3:(i+1)*3] # (3, 7)
         
-        mat_J = torch.mm(J.transpose(0,1), planes[:, 0:3].transpose(0,1)) # (7, K)
-        mat_Jw = mat_J*weights.reshape(1,dis.shape[0]) # (7, K)
-        b = b - torch.mm(mat_Jw, dis.reshape(dis.shape[0],1))
-        A = A + torch.mm(mat_Jw, mat_J.transpose(0, 1))
-        e = e + torch.sum((dis**2)*weights)
-        # b = b - torch.sum(dis.reshape(dis.shape[0], 1)*weights.reshape(dis.shape[0], 1)*torch.ones((dis.shape[0], 7)), dim=0)
-        # A = A + torch.mm(mat_J, torch.mm(torch.eye(len(weights))*weights.reshape(len(weights, 1)),  mat_J.transpose()))
+            dis = torch.sum(c*planes[:,0:3], dim=1)+planes[:,3] # K
+        
+            mat_J = torch.mm(J.transpose(0,1), planes[:, 0:3].transpose(0,1)) # (7, K)
+            mat_Jw = mat_J*weights.reshape(1,dis.shape[0]) # (7, K
+
+            b = b - torch.mm(mat_Jw, dis.reshape(dis.shape[0],1))
+            A = A + torch.mm(mat_Jw, mat_J.transpose(0, 1))
+            e = e + torch.sum((dis**2)*weights)
+            # b = b - torch.sum(dis.reshape(dis.shape[0], 1)*weights.reshape(dis.shape[0], 1)*torch.ones((dis.shape[0], 7)), dim=0)
+            # A = A + torch.mm(mat_J, torch.mm(torch.eye(len(weights))*weights.reshape(len(weights, 1)),  mat_J.transpose()))
     b = b/4
     A = A/4
     e = e/4
