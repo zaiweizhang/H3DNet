@@ -351,12 +351,12 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
               crop_ids.append(j)
         pt_center = pt_center[crop_ids]
         print(pt_center.shape, pt_corner.shape)
-        center_label = np.zeros((center.shape[0], 3))
-        corner_label = np.zeros((corner.shape[0], 3))
+        center_label = np.zeros((pt_center.shape[0], 3))
+        corner_label = np.zeros((pt_corner.shape[0], 3))
         for j in range(3):
             sem = np.load(os.path.join(sem_path, name+'_sem_pt_top%d_from3.npy'%(j)))
-            center_label[:,j] = point_add_sem_label(center, sem, k=10)
-            corner_label[:,j] = point_add_sem_label(corner, sem, k=50)
+            center_label[:,j] = pc_util.point_add_sem_label(pt_center, sem, k=10)
+            corner_label[:,j] = pc_util.point_add_sem_label(pt_corner, sem, k=50)
        
         sio.savemat(os.path.join(dump_dir, name+'_center_0.06_vox.mat'), {'center_vox': pt_center, 'center_label':center_label})
         sio.savemat(os.path.join(dump_dir, name+'_corner_0.06_vox.mat'), {'corner_vox': pt_corner, 'corner_label':corner_label})
