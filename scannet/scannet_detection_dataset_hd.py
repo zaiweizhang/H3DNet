@@ -256,7 +256,8 @@ class ScannetDetectionDataset(Dataset):
         vox = pc_util.point_cloud_to_voxel_scene(point_cloud[:,0:3])
         bbx_for_vox = np.unique(meta_vertices, axis=0)
         bbx_for_vox_processed = pc_util.process_bbx(bbx_for_vox)
-        vox_center = pc_util.center_to_volume_gaussion(bbx_for_vox_processed, dev=self.center_dev)
+        # vox_center = pc_util.center_to_volume_gaussion(bbx_for_vox_processed, dev=self.center_dev)
+        vox_center = pc_util.point_to_volume_gaussion(bbx_for_vox_processed[:, :3], dev=self.center_dev)
         corner_vox = pc_util.get_corner(bbx_for_vox_processed) # without angle 
         # corner_vox = pc_util.get_oriented_corners(bbx_for_vox) # with angle
         vox_corner = pc_util.point_to_volume_gaussion(corner_vox, dev=self.corner_dev)
