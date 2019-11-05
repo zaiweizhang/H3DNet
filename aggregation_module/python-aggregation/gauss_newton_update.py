@@ -9,12 +9,13 @@ def one_proposal_opt(cues, init_object, paras):
     opt_object = torch.cat((init_object.reshape(init_object.shape[0], 1), torch.zeros((10,1))), dim=0)
     cues = relevant_cues(cues, opt_object)
     
-    for outer in range(1):
+    for outer in range(6):
         weight = cue_reweighting(cues, opt_object, paras)
         # print(weight['face_upper'][:100])
         weight = adjust_wegiht(weight, paras)
-        for inner in range(1):
+        for inner in range(8):
             A, b, e_cur = gaussian_newton_step(cues, opt_object, weight)
+            # print( outer, inner)
             # print (A)
             # print(b)
             # print(e_cur)
@@ -22,7 +23,8 @@ def one_proposal_opt(cues, init_object, paras):
             eigvals = eigvals[:,0] # real part 
         
             if torch.min(eigvals)<1e-12:
-                return
+                print('min eig',torch.min(eigvals) )
+                return torch.zeros(opt_object.shape)
         x_dif = torch.mm(A.inverse(), b)
         next_object = opt_object
         next_object[0:7] = next_object[0:7] + x_dif
@@ -49,30 +51,6 @@ def one_proposal_opt(cues, init_object, paras):
             break
     return opt_object
 
-"""
-def object_opt_v1(cues, init_object, paras):
-    opt_object = init_object
-    for outer in range(8):
-        weight = cue_reweighting(cues, opt_object, paras)
-        weight = adjust_wegiht(weight, paras)
-        for inner in range(20):
-            para_diff = gaussian_newton_step(cues, opt_object, weight)
-            e_cur = energy_object2cues(cues, weight, opt_object)
-            alpha = 1.0
-            flag = 0
-            for searchID in range(10):
-                next_object = opt_object
-                next_object = opt_object+para_diff*alpha
-                e_next = energy_object2cues(cues, weight, next_object)
-                if e_next < e_cur:
-                    opt_object = next_object
-                    flag=1
-                    break
-                alpha = alpha/2
-            if flag==0:
-                break
-    return opt_object
-"""        
 def gaussian_newton_step(cues, cur_object, weight):
     
     A = torch.zeros((7,7))
@@ -148,17 +126,28 @@ def gaussian_newton_step(cues, cur_object, weight):
 
 if __name__=="__main__":
     data_path = 'data_v7.mat'
-    # cues, gt_objects = load_data(data_path, 100)
-    cues, init_proposals = load_data_v2(data_path, 1)
-    paras = set_paras()
-    print (time.asctime( time.localtime(time.time()) ))
-    for i in range(256):
-        print(i)
-        cur_object = init_proposals[i]
-    # print(cur_object.shape)
-    
-    # perturbed_obj = gt_objects[10]+(torch.rand(9)*0.4).double()
-    # perturbed_obj = torch.tensor([1.3359,  1.2984,  1.7791,  0.4415,  3.4382,  1.7772,  0.0403, 28.3084, 1.2495])
-        opt_object = one_proposal_opt(cues, cur_object, paras)
-        # print(opt_object)
-    print (time.asctime( time.localtime(time.time()) ))
+    out_path = 'results_0.3'
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    print (time.asctime( time.localtime(time.time())))
+    for idx in range(10):
+        
+        cues, init_proposals, scan_name = load_data_v2(data_path, idx)
+        if not scan_name.endswith('00'):
+            continue
+        np.save(os.path.join(out_path, scan_name+'_init.npy'), init_proposals.numpy())
+        print(scan_name)
+        opt_proposals = torch.zeros(init_proposals.shape)
+        paras = set_paras()
+
+        for i in range(256):
+            # print(i)
+            cur_object = init_proposals[i]
+            opt_object = one_proposal_opt(cues, cur_object, paras)
+            opt_proposals[i] = opt_object[:8,0]
+            # print(opt_object)
+        chose_ids = torch.sum(opt_proposals, dim=1)>0
+        opt_proposals = opt_proposals[chose_ids]
+        print(opt_proposals.shape)
+        np.save(os.path.join(out_path, scan_name+'_opt.npy'), opt_proposals.numpy())
+        print (time.asctime( time.localtime(time.time())))

@@ -72,7 +72,8 @@ def load_data_v2(data_path, idx):
     cues['pred_front'] = torch.from_numpy(f['PFunc_small'][0,idx]['pred_front'][0,0]).transpose(0,1).float()
     cues['pred_back'] = torch.from_numpy(f['PFunc_small'][0,idx]['pred_back'][0,0]).transpose(0,1).float()
     init_proposals = torch.from_numpy(f['Data_small'][0,idx]['init_proposals'][0,0]).transpose(0,1).float()
-    return cues, init_proposals
+    scan_name = f['Data_small'][0,idx]['scene_name'][0,0][0]
+    return cues, init_proposals, scan_name
 
 def extract_center_corners(cur_object, oriented=True): 
     cur_object = cur_object[:,0]
@@ -323,16 +324,27 @@ def get_oriented_corners(bbx):
 
 def set_paras():
     paras={}
-    paras['sigma_face_back']=0.1
-    paras['sigma_face_front']=0.1
-    paras['sigma_face_left']=0.1
-    paras['sigma_face_right']=0.1
-    paras['sigma_face_upper']=0.1
-    paras['sigma_face_lower']=0.1
-    paras['sigma_corner_vox']=0.1
-    paras['sigma_corner_pn']=0.1
-    paras['sigma_center_vox']=0.1
-    paras['sigma_center_pn']=0.1
+    # paras['sigma_face_back']=0.1
+    # paras['sigma_face_front']=0.1
+    # paras['sigma_face_left']=0.1
+    # paras['sigma_face_right']=0.1
+    # paras['sigma_face_upper']=0.1
+    # paras['sigma_face_lower']=0.1
+    # paras['sigma_corner_vox']=0.1
+    # paras['sigma_corner_pn']=0.1
+    # paras['sigma_center_vox']=0.1
+    # paras['sigma_center_pn']=0.1
+    sig = 0.1
+    paras['sigma_face_back']=sig
+    paras['sigma_face_front']=sig
+    paras['sigma_face_left']=sig
+    paras['sigma_face_right']=sig
+    paras['sigma_face_upper']=sig
+    paras['sigma_face_lower']=sig
+    paras['sigma_corner_vox']=sig
+    paras['sigma_corner_pn']=sig
+    paras['sigma_center_vox']=sig
+    paras['sigma_center_pn']=sig
 
     paras['lambda_face_back']=0.0625
     paras['lambda_face_front']=0.0625
