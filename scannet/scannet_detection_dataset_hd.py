@@ -437,6 +437,7 @@ class ScannetDetectionDataset(Dataset):
 
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
+        point_sem_label = np.tile(np.expand_dims(point_sem_label, -1), (1, 3)) # make 3 votes identical
         point_votes_corner = np.tile(point_votes_corner, (1, 3)) # make 3 votes identical
 
         plane_votes_rot_front = np.tile(plane_votes_front[:,:3], (1, 3)) # make 3 votes identical

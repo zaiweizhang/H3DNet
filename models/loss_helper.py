@@ -439,31 +439,46 @@ def compute_sem_cls_loss(end_points):
     num_seed = end_points['seed_xyz'+'sem'].shape[1] # B,num_seed,3
     seed_inds = end_points['seed_inds'+'sem'].long() # B,num_seed in [0,num_points-1]
 
-    seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,GT_VOTE_FACTOR)
     
-    # Get groundtruth votes for the seed points
-    # vote_label_mask: Use gather to select B,num_seed from B,num_point
-    #   non-object point has no GT vote mask = 0, object point has mask = 1
-    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
-    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
-    #seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
-    sem_cls_label = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds)
+    seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
+  
+    sem_cls_label = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds_expand)
     end_points['sub_point_sem_cls_label'] = sem_cls_label
-    num_class = end_points['pred_sem_class1'].shape[1]
+    num_class = end_points['pred_sem_class'].shape[1]
     
     criterion_sem_cls = nn.CrossEntropyLoss(reduction='none')
+
+    target1 = sem_cls_label[...,0].view(-1)
+    target2 = sem_cls_label[...,1].view(-1)
+    target3 = sem_cls_label[...,2].view(-1)
     
     pred1 = end_points['pred_sem_class1'].transpose(2,1).contiguous().view(-1, num_class)
     pred2 = end_points['pred_sem_class2'].transpose(2,1).contiguous().view(-1, num_class)
     pred3 = end_points['pred_sem_class3'].transpose(2,1).contiguous().view(-1, num_class)
-    target = sem_cls_label.view(-1)
-    sem_cls_loss1 = criterion_sem_cls(pred1, target)
-    sem_cls_loss2 = criterion_sem_cls(pred2, target)
-    sem_cls_loss3 = criterion_sem_cls(pred3, target)
 
-    sem_cls_loss1 = torch.sum(sem_cls_loss1*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss1*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
-    sem_cls_loss2 = torch.sum(sem_cls_loss2*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss2*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
-    sem_cls_loss3 = torch.sum(sem_cls_loss3*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss3*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
+    
+    sem_cls_loss1 = criterion_sem_cls(pred1, target1)
+    sem_cls_loss2 = criterion_sem_cls(pred1, target2)
+    sem_cls_loss3 = criterion_sem_cls(pred1, target3)
+
+    sem_cls_loss_final1, _ = torch.min(torch.stack((sem_cls_loss1, sem_cls_loss2, sem_cls_loss3), 1), dim=1)
+
+    sem_cls_loss1 = criterion_sem_cls(pred2, target1)
+    sem_cls_loss2 = criterion_sem_cls(pred2, target2)
+    sem_cls_loss3 = criterion_sem_cls(pred2, target3)
+
+    sem_cls_loss_final2, _ = torch.min(torch.stack((sem_cls_loss1, sem_cls_loss2, sem_cls_loss3), 1), dim=1)
+
+    sem_cls_loss1 = criterion_sem_cls(pred3, target1)
+    sem_cls_loss2 = criterion_sem_cls(pred3, target2)
+    sem_cls_loss3 = criterion_sem_cls(pred3, target3)
+
+    sem_cls_loss_final3, _ = torch.min(torch.stack((sem_cls_loss1, sem_cls_loss2, sem_cls_loss3), 1), dim=1)
+
+    sem_cls_loss1 = torch.sum(sem_cls_loss_final1*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss_final1*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
+    sem_cls_loss2 = torch.sum(sem_cls_loss_final2*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss_final2*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
+    sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6) + 0.2*torch.sum(sem_cls_loss_final3*(1.0 - seed_gt_votes_mask.view(-1)).float())/(torch.sum(1.0 - seed_gt_votes_mask.view(-1).float())+1e-6)
      
     return sem_cls_loss1+sem_cls_loss2+sem_cls_loss3
     
