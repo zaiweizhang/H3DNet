@@ -145,7 +145,7 @@ elif FLAGS.dataset == 'scannet_hd':
     from model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=True,
+        augment=not FLAGS.get_data,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
         augment=False,
@@ -239,11 +239,11 @@ CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
 
 def train_one_epoch():
     stat_dict = {} # collect statistics
-    adjust_learning_rate(optimizer, EPOCH_CNT)
-    bnm_scheduler.step() # decay BN momentum
     if FLAGS.get_data == True:
         net.eval() # set model to training mode
     else:
+        adjust_learning_rate(optimizer, EPOCH_CNT)
+        bnm_scheduler.step() # decay BN momentum
         net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for i in range(len(batch_data_label['num_instance'])):
@@ -259,7 +259,11 @@ def train_one_epoch():
         end_points = {}
         end_points['use_objcue'] = FLAGS.use_objcue
         end_points['use_plane'] = FLAGS.use_plane
-        end_points = net(inputs, end_points)
+        if FLAGS.get_data == True:
+            with torch.no_grad():
+                end_points = net(inputs, end_points)
+        else:
+            end_points = net(inputs, end_points)
 
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
@@ -272,7 +276,7 @@ def train_one_epoch():
         if FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
-
+            
         # Accumulate statistics and print out
         for key in end_points:
             if 'loss' in key or 'acc' in key or 'ratio' in key:

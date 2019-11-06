@@ -576,7 +576,6 @@ def get_loss(end_points, config):
         end_points['loss_plane_center'] = loss_plane_center
         loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
-        #return loss, end_points
 
     ### Init Proposal loss
     # Vote loss
