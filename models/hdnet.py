@@ -150,7 +150,10 @@ class HDNet(nn.Module):
         end_points['seed_xyz'+'plane'] = xyz_plane
         end_points['seed_features'+'plane'] = features_plane
 
-        features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], xyz)
+        newxyz = torch.matmul(xyz, end_points['aug_rot'].float())
+        newxyz = torch.stack(((newxyz[:,:,0])*(-1*end_points['aug_yz'].unsqueeze(-1).float()), (newxyz[:,:,1])*(-1*end_points['aug_xz'].unsqueeze(-1).float()), newxyz[:,:,2]), 2)
+        
+        features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], newxyz)
         features_vox = features_vox.contiguous().transpose(2,1)
     
         xyz_sem = end_points['fp2_xyz'+'sem']
@@ -169,7 +172,7 @@ class HDNet(nn.Module):
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
         #features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
         features_combine_plane = torch.cat((features, features_plane, features_vox), 1)
-        allfeat = torch.cat((xyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
+        allfeat = torch.cat((newxyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
         features_other_vox = pc_util.pt_to_voxel_feature_batch(allfeat)
         #features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox.detach()), 1)
         features_combine_vox = torch.cat((end_points['vox_latent_feature'], features_other_vox), 1)

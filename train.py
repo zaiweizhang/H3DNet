@@ -62,6 +62,7 @@ parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to deca
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
+parser.add_argument('--use_angle', action='store_true', help='Use angle for input in scannet.')
 parser.add_argument('--use_objcue', action='store_true', help='Use support relation in input.')
 parser.add_argument('--use_plane', action='store_true', help='Use support relation in input.')
 parser.add_argument('--get_data', action='store_true', help='Use support relation in input.')
@@ -121,7 +122,7 @@ if FLAGS.dataset == 'sunrgbd':
     from model_util_sunrgbd import SunrgbdDatasetConfig
     DATASET_CONFIG = SunrgbdDatasetConfig()
     TRAIN_DATASET = SunrgbdDetectionVotesDataset('train', num_points=NUM_POINT,
-        augment=True,
+        augment=not FLAGS.get_data,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height),
         use_v1=(not FLAGS.use_sunrgbd_v2))
     TEST_DATASET = SunrgbdDetectionVotesDataset('val', num_points=NUM_POINT,
@@ -145,11 +146,11 @@ elif FLAGS.dataset == 'scannet_hd':
     from model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=not FLAGS.get_data,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+                                            augment=not FLAGS.get_data, use_angle=FLAGS.use_angle,
+                                            use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
-        augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
+                                           augment=False, use_angle=FLAGS.use_angle,
+                                           use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
@@ -249,14 +250,16 @@ def train_one_epoch():
         for i in range(len(batch_data_label['num_instance'])):
             if batch_data_label['num_instance'][i] == 0:
                 print (batch_data_label['scan_name'][i])
+        end_points = {}
         for key in batch_data_label:
             if 'name' not in key:
                 batch_data_label[key] = batch_data_label[key].to(device)
-
+            if 'aug' in key:
+                end_points[key] = batch_data_label[key].to(device)
+                
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
-        end_points = {}
         end_points['use_objcue'] = FLAGS.use_objcue
         end_points['use_plane'] = FLAGS.use_plane
         if FLAGS.get_data == True:
@@ -267,6 +270,8 @@ def train_one_epoch():
 
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
+            if "aug" in key:
+                continue
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
@@ -318,21 +323,25 @@ def evaluate_one_epoch():
                 print (batch_data_label['scan_name'][i])
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
+        end_points = {}
         for key in batch_data_label:
             if 'name' not in key:
                 batch_data_label[key] = batch_data_label[key].to(device)
-        
+            if 'aug' in key:
+                end_points[key] = batch_data_label[key].to(device)
+
         # Forward pass
         inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
         #inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
         with torch.no_grad():
-            end_points = {}
             end_points['use_objcue'] = FLAGS.use_objcue
             end_points['use_plane'] = FLAGS.use_plane
             end_points = net(inputs, end_points)
 
         # Compute loss
         for key in batch_data_label:
+            if "aug" in key:
+                continue
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:

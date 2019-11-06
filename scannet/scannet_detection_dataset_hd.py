@@ -103,10 +103,11 @@ def find_idx(targetbb, selected_centers, selected_centers_support, selected_cent
 class ScannetDetectionDataset(Dataset):
        
     def __init__(self, split_set='train', num_points=20000, center_dev=2.0, corner_dev=1.0,
-                 use_color=False, use_height=False, augment=False, vsize=0.06, use_tsdf=0, use_18cls=1):
+                 use_color=False, use_height=False, augment=False, use_angle=False, vsize=0.06, use_tsdf=0, use_18cls=1):
 
         # self.data_path = os.path.join(BASE_DIR, 'scannet_train_detection_data')
         self.data_path = os.path.join('/scratch/cluster/yanght/Dataset/', 'scannet_train_detection_data')
+        self.data_path_vox = os.path.join('/scratch/cluster/bosun/data/scannet/', 'scannet_train_detection_data')
         all_scan_names = list(set([os.path.basename(x)[0:12] \
             for x in os.listdir(self.data_path) if x.startswith('scene')]))
         if split_set=='all':            
@@ -129,6 +130,7 @@ class ScannetDetectionDataset(Dataset):
         self.num_points = num_points
         self.use_color = use_color        
         self.use_height = use_height
+        self.use_angle = use_angle
         self.augment = augment
 
         ### Vox parameters
@@ -162,24 +164,22 @@ class ScannetDetectionDataset(Dataset):
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         plane_vertices = np.load(os.path.join(self.data_path, scan_name)+'_plane.npy')
         ### Without ori
-        #meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
-        ### With ori
-        meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
-
-        ### Load voxel data
-        """
-        sem_vox=np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_sem.npy'))
-        vox = np.array(sem_vox>0,np.float32)
-        if self.use_tsdf:
-            vox =  read_tsdf(os.path.join(self.data_path+'_vox', scan_name+'.TDF.bin'))
-        if self.use_18cls:
-            vox_center = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_center_noangle_18.npy'))
-            vox_corner = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_corner_noangle_18.npy'))
-            sem_vox=np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_sem_18cls.npy'))
+        if self.use_angle:
+            meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
         else:
-            vox_center = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_center.npy'))
-            vox_corner = np.load(os.path.join(self.data_path+'_vox', scan_name+'_vox_0.06_corner.npy'))
-        """
+            ### With ori
+            meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
+        
+        ### Load voxel data
+        sem_vox=np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_sem.npy'))
+        vox = np.array(sem_vox>0,np.float32)
+        if self.use_angle:
+            vox_center = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_center_angle_18.npy'))
+            vox_corner = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_corner_angle_18.npy'))
+        else:
+            vox_center = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_center_noangle_18.npy'))
+            vox_corner = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_corner_noangle_18.npy'))
+
         instance_labels = meta_vertices[:,-2]
         semantic_labels = meta_vertices[:,-1]
         #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
@@ -228,9 +228,13 @@ class ScannetDetectionDataset(Dataset):
         
         # ------------------------------- DATA AUGMENTATION ------------------------------        
         # if False:#self.augment:## Do not use augment for now
+        point_yz = -1
+        point_xz = -1
+        point_rot = np.eye(3).astype(np.float32)
         if self.augment:
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
+                point_yz = 1
                 point_cloud[:,0] = -1 * point_cloud[:,0]
                 plane_vertices[:,0] = -1 * plane_vertices[:,0]
                 # target_bboxes[:,0] = -1 * target_bboxes[:,0]                
@@ -239,6 +243,7 @@ class ScannetDetectionDataset(Dataset):
                 
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
+                point_xz = 1
                 point_cloud[:,1] = -1 * point_cloud[:,1]
                 plane_vertices[:,1] = -1 * plane_vertices[:,1]
                 # target_bboxes[:,1] = -1 * target_bboxes[:,1]
@@ -247,7 +252,8 @@ class ScannetDetectionDataset(Dataset):
             
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random()*np.pi/18) - np.pi/36 # -5 ~ +5 degree
-            rot_mat = pc_util.rotz(rot_angle)
+            rot_mat = pc_util.rotz(rot_angle).astype(np.float32)
+            point_rot = rot_mat
             point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
             plane_vertices[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_vertices[:,0:3])))
             meta_vertices[:, :6] = rotate_aligned_boxes(meta_vertices[:, :6], rot_mat)
@@ -508,6 +514,10 @@ class ScannetDetectionDataset(Dataset):
 #         ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
         ret_dict['vox_center'] = np.expand_dims(np.array(vox_center, np.float32), 0)
         ret_dict['vox_corner'] = np.expand_dims(np.array(vox_corner, np.float32), 0)
+
+        ret_dict['aug_yz'] = point_yz
+        ret_dict['aug_xz'] = point_xz
+        ret_dict['aug_rot'] = point_rot
         
         return ret_dict
         

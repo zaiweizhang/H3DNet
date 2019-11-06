@@ -45,7 +45,8 @@ class SunrgbdDetectionVotesDataset(Dataset):
                  augment=False, scan_idx_list=None, vsize=0.06, use_tsdf=0, use_18cls=1,center_dev=2.0, corner_dev=1.0):
 
         assert(num_points<=50000)
-        self.use_v1 = use_v1 
+        self.use_v1 = use_v1
+        ROOT_DIR = '/scratch/cluster/zaiwei92/dataset/'
         if use_v1:
             self.data_path = os.path.join(ROOT_DIR,
                 'sunrgbd/sunrgbd_pc_bbox_votes_50k_v1_%s'%(split_set))
@@ -54,7 +55,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
             self.data_path = os.path.join(ROOT_DIR,
                 'sunrgbd/sunrgbd_pc_bbox_votes_50k_v2_%s'%(split_set))
             
-        self.raw_data_path = os.path.join(ROOT_DIR, 'sunrgbd/sunrgbd_trainval')
+        #self.raw_data_path = os.path.join(ROOT_DIR, 'sunrgbd/sunrgbd_trainval')
         self.scan_names = sorted(list(set([os.path.basename(x)[0:6] \
             for x in os.listdir(self.data_path)])))
         if scan_idx_list is not None:
@@ -121,9 +122,13 @@ class SunrgbdDetectionVotesDataset(Dataset):
             height = point_cloud[:,2] - floor_height
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) # (N,4) or (N,7)
         # ------------------------------- DATA AUGMENTATION ------------------------------
+        point_yz = -1
+        point_xz = -1
+        point_rot = np.eye(3).astype(np.float32)
         if self.augment:
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
+                point_yz = 1
                 point_cloud[:,0] = -1 * point_cloud[:,0]
                 plane_label[:,0] = -1 * plane_label[:,0]
                 
@@ -141,8 +146,10 @@ class SunrgbdDetectionVotesDataset(Dataset):
               
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random()*np.pi/3) - np.pi/6 # -30 ~ +30 degree
-            rot_mat = sunrgbd_utils.rotz(rot_angle)
+            rot_mat = sunrgbd_utils.rotz(rot_angle).astype(np.float32)
 
+            point_rot = rot_mat
+            
             point_votes_end = np.zeros_like(point_votes)
             point_votes_end[:,1:4] = np.dot(point_cloud[:,0:3] + point_votes[:,1:4], np.transpose(rot_mat))
             point_votes_end[:,4:7] = np.dot(point_cloud[:,0:3] + point_votes[:,4:7], np.transpose(rot_mat))
@@ -335,6 +342,10 @@ class SunrgbdDetectionVotesDataset(Dataset):
 #         ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
         ret_dict['vox_center'] = np.expand_dims(np.array(vox_center, np.float32), 0)
         ret_dict['vox_corner'] = np.expand_dims(np.array(vox_corner, np.float32), 0)
+
+        ret_dict['aug_yz'] = point_yz
+        ret_dict['aug_xz'] = point_xz
+        ret_dict['aug_rot'] = point_rot
         
         return ret_dict
 

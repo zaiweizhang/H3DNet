@@ -445,7 +445,7 @@ def compute_sem_cls_loss(end_points):
   
     sem_cls_label = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds_expand)
     end_points['sub_point_sem_cls_label'] = sem_cls_label
-    num_class = end_points['pred_sem_class'].shape[1]
+    num_class = end_points['pred_sem_class1'].shape[1]
     
     criterion_sem_cls = nn.CrossEntropyLoss(reduction='none')
 
@@ -457,7 +457,6 @@ def compute_sem_cls_loss(end_points):
     pred2 = end_points['pred_sem_class2'].transpose(2,1).contiguous().view(-1, num_class)
     pred3 = end_points['pred_sem_class3'].transpose(2,1).contiguous().view(-1, num_class)
 
-    
     sem_cls_loss1 = criterion_sem_cls(pred1, target1)
     sem_cls_loss2 = criterion_sem_cls(pred1, target2)
     sem_cls_loss3 = criterion_sem_cls(pred1, target3)
