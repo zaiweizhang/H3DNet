@@ -72,7 +72,8 @@ def load_data_v2(data_path, idx):
     cues['pred_front'] = torch.from_numpy(f['PFunc_small'][0,idx]['pred_front'][0,0]).transpose(0,1).float()
     cues['pred_back'] = torch.from_numpy(f['PFunc_small'][0,idx]['pred_back'][0,0]).transpose(0,1).float()
     init_proposals = torch.from_numpy(f['Data_small'][0,idx]['init_proposals'][0,0]).transpose(0,1).float()
-    return cues, init_proposals
+    scan_name = f['Data_small'][0,idx]['scene_name'][0,0][0]
+    return cues, init_proposals, scan_name
 
 def extract_center_corners(cur_object, oriented=True): 
     cur_object = cur_object[:,0]
@@ -95,7 +96,7 @@ def face_2_plane_sqrDis(corners, planes): # (4, 3), (M, 4)
 def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False):
     weight={}
     center, corners = extract_center_corners(cur_object, oriented=oriented)
-    print('extract', center.shape,center.dtype,corners.shape, corners.dtype)
+    # print('extract', center.shape,center.dtype,corners.shape, corners.dtype)
     # center 
     if cues['center_vox'].shape[0]!=0:    
         diff_cen = cues['center_vox']-center # (k, 3)
@@ -103,7 +104,7 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
         if flag==1:
             weight['center_vox'] = ((weight['center_vox']>thres).float())*weight['center_vox']
     else:
-        weight['center_vox'] =0
+        weight['center_vox'] = torch.tensor([0])
         
     diff_cen = cues['center_pn']-center # (k, 3)
     weight['center_pn'] = paras['sigma_center_pn']**2/(paras['sigma_center_pn']**2+torch.sum(diff_cen**2, dim=1))
@@ -126,7 +127,7 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
                 weight['corner_pn'][i] = ((weight['corner_pn'][i]>thres).float())*weight['corner_pn'][i]
     else:
         for i in range(8):
-            weight['corner_vox'][i] = 0
+            weight['corner_vox'][i] = torch.tensor([0])
             diff = cues['corner_pn']-corners[i]
             weight['corner_pn'][i] = paras['sigma_corner_pn']**2/(paras['sigma_corner_pn']**2+torch.sum(diff**2, dim=1))
             if flag==1:
@@ -160,10 +161,10 @@ def cue_reweighting(cues, cur_object, paras, flag=0, thres=0.05, oriented=False)
     return weight
 
 def adjust_wegiht(weight, paras):
-    if weight['center_vox']!=0:
+    if torch.sum(weight['center_vox'])!=0:
         weight['center_vox'] = paras['lambda_center_vox']*weight['center_vox']/len(weight['center_vox'])
     weight['center_pn'] = paras['lambda_center_pn']*weight['center_pn']/len(weight['center_pn'])
-    if weight['corner_vox'][0]!=0:
+    if torch.sum(weight['corner_vox'][0])!=0:
         weight['corner_vox'] = paras['lambda_corner_vox']*weight['corner_vox']/(weight['corner_vox'].shape[1])
     weight['corner_pn'] = paras['lambda_corner_pn']*weight['corner_pn']/(weight['corner_pn'].shape[1])
     weight['face_upper'] =  paras['lambda_face_upper']*weight['face_upper']/len(weight['face_upper'])
@@ -258,21 +259,21 @@ def gn_approx_face2plane(corners, J_corners, ids, planes, weights):
     A = torch.zeros((7,7))
     b = torch.zeros((7,1))
     e = 0
-    for i in ids:
-        c =corners[i].unsqueeze(0)
-        J = J_corners[i*3:(i+1)*3] # (3, 7)
-        # print(i)
-        # print(c)
-        # print(J)
-        dis = torch.sum(c*planes[:,0:3], dim=1)+planes[:,3] # K
+    if planes.shape[0]!=0:
+        for i in ids:
+            c =corners[i].unsqueeze(0)
+            J = J_corners[i*3:(i+1)*3] # (3, 7)
         
-        mat_J = torch.mm(J.transpose(0,1), planes[:, 0:3].transpose(0,1)) # (7, K)
-        mat_Jw = mat_J*weights.reshape(1,dis.shape[0]) # (7, K)
-        b = b - torch.mm(mat_Jw, dis.reshape(dis.shape[0],1))
-        A = A + torch.mm(mat_Jw, mat_J.transpose(0, 1))
-        e = e + torch.sum((dis**2)*weights)
-        # b = b - torch.sum(dis.reshape(dis.shape[0], 1)*weights.reshape(dis.shape[0], 1)*torch.ones((dis.shape[0], 7)), dim=0)
-        # A = A + torch.mm(mat_J, torch.mm(torch.eye(len(weights))*weights.reshape(len(weights, 1)),  mat_J.transpose()))
+            dis = torch.sum(c*planes[:,0:3], dim=1)+planes[:,3] # K
+        
+            mat_J = torch.mm(J.transpose(0,1), planes[:, 0:3].transpose(0,1)) # (7, K)
+            mat_Jw = mat_J*weights.reshape(1,dis.shape[0]) # (7, K
+
+            b = b - torch.mm(mat_Jw, dis.reshape(dis.shape[0],1))
+            A = A + torch.mm(mat_Jw, mat_J.transpose(0, 1))
+            e = e + torch.sum((dis**2)*weights)
+            # b = b - torch.sum(dis.reshape(dis.shape[0], 1)*weights.reshape(dis.shape[0], 1)*torch.ones((dis.shape[0], 7)), dim=0)
+            # A = A + torch.mm(mat_J, torch.mm(torch.eye(len(weights))*weights.reshape(len(weights, 1)),  mat_J.transpose()))
     b = b/4
     A = A/4
     e = e/4
@@ -323,16 +324,27 @@ def get_oriented_corners(bbx):
 
 def set_paras():
     paras={}
-    paras['sigma_face_back']=0.1
-    paras['sigma_face_front']=0.1
-    paras['sigma_face_left']=0.1
-    paras['sigma_face_right']=0.1
-    paras['sigma_face_upper']=0.1
-    paras['sigma_face_lower']=0.1
-    paras['sigma_corner_vox']=0.1
-    paras['sigma_corner_pn']=0.1
-    paras['sigma_center_vox']=0.1
-    paras['sigma_center_pn']=0.1
+    # paras['sigma_face_back']=0.1
+    # paras['sigma_face_front']=0.1
+    # paras['sigma_face_left']=0.1
+    # paras['sigma_face_right']=0.1
+    # paras['sigma_face_upper']=0.1
+    # paras['sigma_face_lower']=0.1
+    # paras['sigma_corner_vox']=0.1
+    # paras['sigma_corner_pn']=0.1
+    # paras['sigma_center_vox']=0.1
+    # paras['sigma_center_pn']=0.1
+    sig = 0.1
+    paras['sigma_face_back']=sig
+    paras['sigma_face_front']=sig
+    paras['sigma_face_left']=sig
+    paras['sigma_face_right']=sig
+    paras['sigma_face_upper']=sig
+    paras['sigma_face_lower']=sig
+    paras['sigma_corner_vox']=sig
+    paras['sigma_corner_pn']=sig
+    paras['sigma_center_vox']=sig
+    paras['sigma_center_pn']=sig
 
     paras['lambda_face_back']=0.0625
     paras['lambda_face_front']=0.0625

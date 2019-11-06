@@ -352,10 +352,16 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
               crop_ids.append(j)
         pt_center = pt_center[crop_ids]
         print(pt_center.shape, pt_corner.shape)
+        if pt_center.shape[0]==0 or  pt_corner.shape[0]==0:
+            print('***0 point***', name)
+            continue
         center_label = np.zeros((pt_center.shape[0], 3))
         corner_label = np.zeros((pt_corner.shape[0], 3))
         for j in range(3):
             sem = np.load(os.path.join(sem_path, name+'_sem_pt_top%d_from3.npy'%(j)))
+            if sem.shape[0]==0:
+                print('***0 sem point***', name)
+                continue
             center_label[:,j] = pc_util.point_add_sem_label(pt_center, sem, k=10)
             corner_label[:,j] = pc_util.point_add_sem_label(pt_corner, sem, k=50)
        
