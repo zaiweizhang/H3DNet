@@ -507,9 +507,9 @@ def get_loss(end_points, config):
     wcenter = 3
     wcorner = 2
     w9_cen = 0
-    w8_cen = 250
+    w8_cen = 300#250
     w5_cen = 5
-    w9_cor = 60
+    w9_cor = 100#60
     w8_cor = 250
     w5_cor = 5
     
@@ -590,7 +590,7 @@ def get_loss(end_points, config):
         end_points['loss_plane_center'] = loss_plane_center
         loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
-        #return loss, end_points
+        return loss, end_points
 
     ### Init Proposal loss
     # Vote loss

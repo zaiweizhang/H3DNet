@@ -153,14 +153,14 @@ def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.84, xy
     #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
     return vol_fea
 
-def pt_to_voxel_feature_batch_sunrgbd(pt_fea,vs=0.0625, reduce_factor=16,  xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2.5, zmax=2.5):
+def pt_to_voxel_feature_batch_sunrgbd(pt_fea,vs=0.0625, reduce_factor=16,  xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2, zmax=2):
     B, N, K = pt_fea.shape
     F = K-3
     pt = pt_fea[:,:,0:3] #xyz
     fea = pt_fea[:,:,3:]
-    pt[:,:,0] = torch.clamp(pt[:,:,0], xmin, xmax-0.1)
-    pt[:,:,1] = torch.clamp(pt[:,:,1], ymin, ymax-0.1)
-    pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
+    #pt[:,:,0] = torch.clamp(pt[:,:,0], xmin, xmax-0.1)
+    #pt[:,:,1] = torch.clamp(pt[:,:,1], ymin, ymax-0.1)
+    #pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
     pt[:,:,0] = pt[:,:,0]-xmin
     pt[:,:,1] = pt[:,:,1]-ymin
     pt[:,:,2] = pt[:,:,2]-zmin
@@ -213,13 +213,14 @@ def voxel_to_pt_feature_batch(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.84, xy
     pt_feature=pt_feature.view(B, N, F)
     return pt_feature
 
-def voxel_to_pt_feature_batch_sunrgbd(fea, pt,vs=0.0625, reduce_factor=16, xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2.5, zmax=2.5):
+def voxel_to_pt_feature_batch_sunrgbd(fea, pt,vs=0.0625, reduce_factor=16, xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2, zmax=2):
     # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
     # pt: [N, 3]
     B = fea.shape[0]
     N = pt.shape[1]
     F = fea.shape[1]
-    vxy = fea.shape[2]
+    vx = fea.shape[2]
+    vy = fea.shape[3]
     vz= fea.shape[4]
     pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
     fea = (fea.contiguous().view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f

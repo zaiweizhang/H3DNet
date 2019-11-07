@@ -221,14 +221,6 @@ class SunrgbdDetectionVotesDataset(Dataset):
             if self.use_height:
                 point_cloud[:,-1] *= scale_ratio[0,0]
 
-        # load voxel data
-        vox = pc_util.point_cloud_to_voxel_scene(point_cloud[:,0:3])
-        bbx_for_vox = np.unique(bboxes, axis=0)
-        bbx_for_vox_processed = pc_util.process_bbx(bbx_for_vox)
-        vox_center = pc_util.center_to_volume_gaussion(bbx_for_vox_processed, dev=self.center_dev)
-        corner_vox = pc_util.get_corner(bbx_for_vox_processed) # without angle 
-        # corner_vox = pc_util.get_oriented_corners(bbx_for_vox) # with angle
-        vox_corner = pc_util.point_to_volume_gaussion(corner_vox, dev=self.corner_dev)
         # ------------------------------- LABELS ------------------------------
         box3d_centers = np.zeros((MAX_NUM_OBJ, 3))
         box3d_sizes = np.zeros((MAX_NUM_OBJ, 3))
@@ -344,7 +336,8 @@ class SunrgbdDetectionVotesDataset(Dataset):
         ret_dict['plane_votes_off_upper'] = plane_votes_off_upper.astype(np.float32)
 
         ret_dict['scan_name'] = scan_name
-
+        ret_dict['num_instance'] = bboxes.shape[0]
+        
         ret_dict['voxel'] =np.expand_dims(vox.astype(np.float32), 0)
 #         ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
         ret_dict['vox_center'] = np.expand_dims(np.array(vox_center, np.float32), 0)

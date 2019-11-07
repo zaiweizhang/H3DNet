@@ -251,6 +251,10 @@ def train_one_epoch():
             if batch_data_label['num_instance'][i] == 0:
                 print (batch_data_label['scan_name'][i])
         end_points = {}
+        if FLAGS.dataset == 'sunrgbd':
+            end_points['sunrgbd'] = True
+        else:
+            end_points['sunrgbd'] = False
         for key in batch_data_label:
             if 'name' not in key:
                 batch_data_label[key] = batch_data_label[key].to(device)
@@ -324,6 +328,10 @@ def evaluate_one_epoch():
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
         end_points = {}
+        if FLAGS.dataset == 'sunrgbd':
+            end_points['sunrgbd'] = True
+        else:
+            end_points['sunrgbd'] = False
         for key in batch_data_label:
             if 'name' not in key:
                 batch_data_label[key] = batch_data_label[key].to(device)
