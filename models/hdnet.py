@@ -87,17 +87,20 @@ class HDNet(nn.Module):
 
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
-        self.conv_sem1 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
+        #self.conv_sem1 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
+        self.conv_sem1 = torch.nn.Conv1d(512,128,1) ##Pointfeature + input
         self.conv_sem2 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem1 = torch.nn.BatchNorm1d(128)
         self.dropout_sem1 = torch.nn.Dropout(0.5)
 
-        self.conv_sem3 = torch.nn.Conv1d(128+256+7,128,1) ##Pointfeature + input
+        #self.conv_sem3 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
+        self.conv_sem3 = torch.nn.Conv1d(512,128,1) ##Pointfeature + input
         self.conv_sem4 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem2 = torch.nn.BatchNorm1d(128)
         self.dropout_sem2 = torch.nn.Dropout(0.5)
 
-        self.conv_sem5 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
+        #self.conv_sem5 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
+        self.conv_sem5 = torch.nn.Conv1d(512,128,1) ##Pointfeature + input
         self.conv_sem6 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem3 = torch.nn.BatchNorm1d(128)
         self.dropout_sem3 = torch.nn.Dropout(0.5)
@@ -168,9 +171,6 @@ class HDNet(nn.Module):
         #features_combine_point = torch.cat((features, features_plane, features_sem.detach()), 1)
         #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
         features_combine_point = torch.cat((features, features_plane, features_vox), 1)
-        features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
-        features_combine_sem_vox = torch.cat((features_sem, features_vox.detach()), 1)
-        features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
         #features_combine_sem = torch.cat((features.detach(), features_plane.detach(), features_sem), 1)
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
         #features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
@@ -194,7 +194,7 @@ class HDNet(nn.Module):
         end_points['vote_xyz'] = proposal_xyz
         end_points['vote_features'] = proposal_features
         
-        voted_xyz, voted_xyz_corner = self.vgen_point(xyz, features_combine_point)
+        voted_xyz, voted_xyz_corner, center_feature, corner_feature = self.vgen_point(xyz, features_combine_point)
         #features_norm = torch.norm(features, p=2, dim=1)
         #features = features.div(features_norm.unsqueeze(1))
         end_points['vote_xyz_center'] = voted_xyz
@@ -206,7 +206,7 @@ class HDNet(nn.Module):
 
         xyz_plane = torch.cat((xyz, seed_plane), -1)
         
-        net_upper, net_lower, net_left, net_right, net_front, net_back = self.vgen_plane(xyz_plane, features_combine_plane)
+        net_upper, net_lower, net_left, net_right, net_front, net_back, plane_feature = self.vgen_plane(xyz_plane, features_combine_plane)
 
         end_points['upper_rot'] = net_upper[:,:3,:].transpose(2,1).contiguous()
         end_points['upper_off'] = net_upper[:,3,:].contiguous()
@@ -227,20 +227,28 @@ class HDNet(nn.Module):
         end_points['back_off'] = net_back[:,3,:].contiguous()
 
         ### Semantic Segmentation
-        features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
-        net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_for_sem))))
+        #features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
+        #features_combine_sem_vox = torch.cat((features_sem, features_vox.detach()), 1)
+        #features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
+        features_combine_sem_point = center_feature
+        features_combine_sem_corner = corner_feature
+        features_combine_sem_plane = plane_feature
+
+        #features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_combine_sem_point))))
         net_sem = self.conv_sem2(net_sem)
         end_points["pred_sem_class1"] = net_sem
-        features_for_sem = torch.cat((features_combine_sem_vox, xyz_plane.transpose(2,1).contiguous()), 1)
-        net_sem = F.relu(self.dropout_sem2(self.bn_sem2(self.conv_sem3(features_for_sem))))
+        #features_for_sem = torch.cat((features_combine_sem_corner, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.dropout_sem2(self.bn_sem2(self.conv_sem3(features_combine_sem_corner))))
         net_sem = self.conv_sem4(net_sem)
         end_points["pred_sem_class2"] = net_sem
-        features_for_sem = torch.cat((features_combine_sem_plane, xyz_plane.transpose(2,1).contiguous()), 1)
-        net_sem = F.relu(self.dropout_sem3(self.bn_sem3(self.conv_sem5(features_for_sem))))
+        #features_for_sem = torch.cat((features_combine_sem_plane, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.dropout_sem3(self.bn_sem3(self.conv_sem5(features_combine_sem_plane))))
         net_sem = self.conv_sem6(net_sem)
         end_points["pred_sem_class3"] = net_sem
 
         end_points["pred_sem_class"] = torch.stack((torch.argmax(end_points["pred_sem_class1"], 1), torch.argmax(end_points["pred_sem_class2"], 1), torch.argmax(end_points["pred_sem_class3"], 1)), 1)
+        end_points["pred_sem_class_top3"] = torch.stack((torch.topk(end_points["pred_sem_class1"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class2"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class3"], 3, dim=1)[0]), 1)
         end_points = self.pnet(proposal_xyz, proposal_features, end_points)
         """
         if end_points['use_support']:
