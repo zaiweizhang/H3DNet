@@ -46,15 +46,16 @@ class SunrgbdDetectionVotesDataset(Dataset):
 
         assert(num_points<=50000)
         self.use_v1 = use_v1
-        ROOT_DIR = '/scratch/cluster/zaiwei92/dataset/'
+        ROOT_DIR = '/scratch/cluster/zaiwei92/data/'
         if use_v1:
             self.data_path = os.path.join(ROOT_DIR,
-                'sunrgbd/sunrgbd_pc_bbox_votes_50k_v1_%s'%(split_set))
-            self.data_plane_path = os.path.join(ROOT_DIR, 'sunrgbd/sunrgbd_pc_bbox_votes_50k_v1_all_plane')
+                'sunrgbd_pc_bbox_votes_50k_v1_%s'%(split_set))
+            self.data_plane_path = os.path.join(ROOT_DIR, 'sunrgbd_pc_bbox_votes_50k_v1_all_plane')
         else:
             self.data_path = os.path.join(ROOT_DIR,
                 'sunrgbd/sunrgbd_pc_bbox_votes_50k_v2_%s'%(split_set))
-            
+
+        self.data_path_vox = os.path.join('/scratch/cluster/bosun/data/sunrgbd/',  'sunrgbd_pc_bbox_votes_50k_v1_%s'%(split_set))
         #self.raw_data_path = os.path.join(ROOT_DIR, 'sunrgbd/sunrgbd_trainval')
         self.scan_names = sorted(list(set([os.path.basename(x)[0:6] \
             for x in os.listdir(self.data_path)])))
@@ -110,7 +111,13 @@ class SunrgbdDetectionVotesDataset(Dataset):
         plane_front = cues['plane_front']
         plane_back = cues['plane_back']
         plane_label = planes['params']
-        
+
+        ### Load voxel data
+        sem_vox=np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.0625.npy'))
+        vox = np.array(sem_vox>0,np.float32)
+        vox_center = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.0625_center.npy'))
+        vox_corner = np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.0625_corner_angle.npy'))
+
         if True:#not self.use_color: ### Do not use color 
             point_cloud = point_cloud[:,0:3]
         else:
