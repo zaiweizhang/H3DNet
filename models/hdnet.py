@@ -88,17 +88,17 @@ class HDNet(nn.Module):
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
         self.conv_sem1 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
-        self.conv_sem2 = torch.nn.Conv1d(128,(num_class+1),1)
+        self.conv_sem2 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem1 = torch.nn.BatchNorm1d(128)
         self.dropout_sem1 = torch.nn.Dropout(0.5)
 
         self.conv_sem3 = torch.nn.Conv1d(128+256+7,128,1) ##Pointfeature + input
-        self.conv_sem4 = torch.nn.Conv1d(128,(num_class+1),1)
+        self.conv_sem4 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem2 = torch.nn.BatchNorm1d(128)
         self.dropout_sem2 = torch.nn.Dropout(0.5)
 
         self.conv_sem5 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
-        self.conv_sem6 = torch.nn.Conv1d(128,(num_class+1),1)
+        self.conv_sem6 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem3 = torch.nn.BatchNorm1d(128)
         self.dropout_sem3 = torch.nn.Dropout(0.5)
         
