@@ -139,12 +139,12 @@ class SunrgbdDetectionVotesDataset(Dataset):
                 point_cloud[:,0] = -1 * point_cloud[:,0]
                 plane_label[:,0] = -1 * plane_label[:,0]
                 
-                plane_front[:,0] = -1 * plane_front[:,0]
-                plane_back[:,0] = -1 * plane_back[:,0]
-                plane_upper[:,0] = -1 * plane_upper[:,0]
-                plane_lower[:,0] = -1 * plane_lower[:,0]
-                plane_left[:,0] = -1 * plane_left[:,0]
-                plane_right[:,0] = -1 * plane_right[:,0]
+                plane_front[:,[0, 4, 8]] = -1 * plane_front[:,[0, 4, 8]]
+                plane_back[:,[0, 4, 8]] = -1 * plane_back[:,[0, 4, 8]]
+                plane_upper[:,[0, 4, 8]] = -1 * plane_upper[:,[0, 4, 8]]
+                plane_lower[:,[0, 4, 8]] = -1 * plane_lower[:,[0, 4, 8]]
+                plane_left[:,[0, 4, 8]] = -1 * plane_left[:,[0, 4, 8]]
+                plane_right[:,[0, 4, 8]] = -1 * plane_right[:,[0, 4, 8]]
                 
                 bboxes[:,0] = -1 * bboxes[:,0]
                 bboxes[:,6] = np.pi - bboxes[:,6]
@@ -176,6 +176,20 @@ class SunrgbdDetectionVotesDataset(Dataset):
             plane_lower[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_lower[:,0:3])))
             plane_front[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_front[:,0:3])))
             plane_back[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_back[:,0:3])))
+            
+            plane_left[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_left[:,4:7])))
+            plane_right[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_right[:,4:7])))
+            plane_upper[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_upper[:,4:7])))
+            plane_lower[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_lower[:,4:7])))
+            plane_front[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_front[:,4:7])))
+            plane_back[:,4:7] = np.transpose(np.dot(rot_mat, np.transpose(plane_back[:,4:7])))
+            
+            plane_left[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_left[:,8:11])))
+            plane_right[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_right[:,8:11])))
+            plane_upper[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_upper[:,8:11])))
+            plane_lower[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_lower[:,8:11])))
+            plane_front[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_front[:,8:11])))
+            plane_back[:,8:11] = np.transpose(np.dot(rot_mat, np.transpose(plane_back[:,8:11])))
             
             bboxes[:,0:3] = np.dot(bboxes[:,0:3], np.transpose(rot_mat))
             bboxes[:,6] -= rot_angle
@@ -209,6 +223,20 @@ class SunrgbdDetectionVotesDataset(Dataset):
             plane_right[:,0:3] /= scale_ratio
             plane_upper[:,0:3] /= scale_ratio
             plane_lower[:,0:3] /= scale_ratio
+
+            plane_front[:,4:7] /= scale_ratio
+            plane_back[:,4:7] /= scale_ratio
+            plane_left[:,4:7] /= scale_ratio
+            plane_right[:,4:7] /= scale_ratio
+            plane_upper[:,4:7] /= scale_ratio
+            plane_lower[:,4:7] /= scale_ratio
+
+            plane_front[:,8:11] /= scale_ratio
+            plane_back[:,8:11] /= scale_ratio
+            plane_left[:,8:11] /= scale_ratio
+            plane_right[:,8:11] /= scale_ratio
+            plane_upper[:,8:11] /= scale_ratio
+            plane_lower[:,8:11] /= scale_ratio
             
             bboxes[:,0:3] *= scale_ratio
             bboxes[:,3:6] *= scale_ratio

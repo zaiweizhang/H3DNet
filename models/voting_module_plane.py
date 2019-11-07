@@ -118,6 +118,7 @@ class VotingPlaneModule(nn.Module):
         residual_features2 = net_front_back[:,5:,:]
         residual_features3 = net_left_right[:,5:,:]
         vote_features = seed_features + residual_features1 + residual_features2 + residual_features3
+        #vote_features = residual_features1 + residual_features2 + residual_features3
         
         return net_upper, net_lower, net_left, net_right, net_front, net_back, vote_features
  

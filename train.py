@@ -316,11 +316,17 @@ def evaluate_one_epoch():
     net.eval() # set model to eval mode (for bn and dp)
     total_correct_sem = 0
     total_sem = 0
+    total_correct_sem_plane = 0
+    total_sem_plane = 0
     correct_cls = {}
     total_cls = {}
+    correct_cls_plane = {}
+    total_cls_plane = {}
     for cls in DATASET_CONFIG.class2type:
         correct_cls[cls] = 0
         total_cls[cls] = 0
+        correct_cls_plane[cls] = 0
+        total_cls_plane[cls] = 0
     for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
         for i in range(len(batch_data_label['num_instance'])):
             if batch_data_label['num_instance'][i] == 0:
@@ -367,6 +373,7 @@ def evaluate_one_epoch():
         corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
         for i in range(len(batch_data_label['num_instance'])):
+            ### For point
             pre_sem = end_points['pred_sem_class'][i,0,...].detach().cpu().numpy()
             sem_idx = np.where(end_points['sem_mask'][i,...].detach().cpu().numpy() > 0)[0]
             pre_sem = np.expand_dims(pre_sem[sem_idx], -1)
@@ -376,6 +383,16 @@ def evaluate_one_epoch():
                 total_cls[cls] += np.sum(np.sum(gt_sem == cls, 1) > 0)
             total_correct_sem += np.sum((np.sum(pre_sem == gt_sem, 1) > 0))
             total_sem += len(gt_sem)
+            ### For plane
+            pre_sem = end_points['pred_sem_class'][i,2,...].detach().cpu().numpy()
+            sem_idx = np.where(end_points['sem_mask_plane'][i,...].detach().cpu().numpy() > 0)[0]
+            pre_sem = np.expand_dims(pre_sem[sem_idx], -1)
+            gt_sem = np.squeeze(end_points['sub_point_sem_cls_label'][i,:].cpu().numpy())[sem_idx]
+            for cls in DATASET_CONFIG.class2type.keys():
+                correct_cls_plane[cls] += np.sum((np.sum(pre_sem == gt_sem, 1) > 0) & (np.sum(gt_sem == cls, 1) > 0))
+                total_cls_plane[cls] += np.sum(np.sum(gt_sem == cls, 1) > 0)
+            total_correct_sem_plane += np.sum((np.sum(pre_sem == gt_sem, 1) > 0))
+            total_sem_plane += len(gt_sem)
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
@@ -396,6 +413,9 @@ def evaluate_one_epoch():
     log_string("total_sem_acc: %f" % (total_correct_sem / float(total_sem)))
     for cls in DATASET_CONFIG.class2type:
         log_string("For %s: %f"%(DATASET_CONFIG.class2type[cls], correct_cls[cls] / float(total_cls[cls])))
+    log_string("total_sem_acc_plane: %f" % (total_correct_sem_plane / float(total_sem_plane)))
+    for cls in DATASET_CONFIG.class2type:
+        log_string("For plane %s: %f"%(DATASET_CONFIG.class2type[cls], correct_cls_plane[cls] / float(total_cls_plane[cls])))
     # Evaluate average precision
     metrics_dict = ap_calculator.compute_metrics()
     for key in metrics_dict:

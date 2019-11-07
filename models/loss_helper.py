@@ -442,8 +442,10 @@ def compute_sem_cls_loss(end_points):
     seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,GT_VOTE_FACTOR)
     
     seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
-
+    seed_gt_votes_mask_plane = torch.gather(end_points['plane_label_mask'], 1, seed_inds)
+    
     end_points['sem_mask'] = seed_gt_votes_mask
+    end_points['sem_mask_plane'] = seed_gt_votes_mask_plane
     
     sem_cls_label = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds_expand)
     end_points['sub_point_sem_cls_label'] = sem_cls_label
@@ -484,7 +486,7 @@ def compute_sem_cls_loss(end_points):
     '''
     sem_cls_loss1 = torch.sum(sem_cls_loss_final1*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6)
     sem_cls_loss2 = torch.sum(sem_cls_loss_final2*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6)
-    sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask.view(-1).float())/(torch.sum(seed_gt_votes_mask.view(-1).float())+1e-6)
+    sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask_plane.view(-1).float())/(torch.sum(seed_gt_votes_mask_plane.view(-1).float())+1e-6)
     return sem_cls_loss1+sem_cls_loss2+sem_cls_loss3
     
 def get_loss(end_points, config):
@@ -596,7 +598,7 @@ def get_loss(end_points, config):
         end_points['loss_plane_center'] = loss_plane_center
         loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
-        return loss, end_points
+        #return loss, end_points
 
     ### Init Proposal loss
     # Vote loss

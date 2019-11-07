@@ -128,11 +128,13 @@ class VotingPointModule(nn.Module):
 
         residual_features = net[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
         vote_features = seed_features.transpose(2,1).unsqueeze(2) + residual_features
+        #vote_features = residual_features
         vote_features = vote_features.contiguous().view(batch_size, num_vote, self.out_dim)
         vote_features = vote_features.transpose(2,1).contiguous()
 
         residual_features_corner = net_corner[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
         vote_features_corner = seed_features.transpose(2,1).unsqueeze(2) + residual_features_corner
+        #vote_features_corner = residual_features_corner
         vote_features_corner = vote_features_corner.contiguous().view(batch_size, num_vote, self.out_dim)
         vote_features_corner = vote_features_corner.transpose(2,1).contiguous()
                 
