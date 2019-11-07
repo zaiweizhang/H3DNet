@@ -219,7 +219,8 @@ def voxel_to_pt_feature_batch_sunrgbd(fea, pt,vs=0.0625, reduce_factor=16, xmin=
     B = fea.shape[0]
     N = pt.shape[1]
     F = fea.shape[1]
-    vxy = fea.shape[2]
+    vx = fea.shape[2]
+    vy = fea.shape[3]
     vz= fea.shape[4]
     pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
     fea = (fea.contiguous().view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f
