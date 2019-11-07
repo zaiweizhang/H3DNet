@@ -122,7 +122,7 @@ def pt_to_voxel_feature_batch_orig(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.8
     #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
     return vol_fea
 
-def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
     B, N, K = pt_fea.shape
     F = K-3
     pt = pt_fea[:,:,0:3] #xyz
@@ -153,7 +153,43 @@ def pt_to_voxel_feature_batch(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xy
     #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
     return vol_fea
 
-def voxel_to_pt_feature_batch(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def pt_to_voxel_feature_batch_sunrgbd(pt_fea,vs=0.0625, reduce_factor=16,  xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2.5, zmax=2.5):
+    B, N, K = pt_fea.shape
+    F = K-3
+    pt = pt_fea[:,:,0:3] #xyz
+    fea = pt_fea[:,:,3:]
+    pt[:,:,0] = torch.clamp(pt[:,:,0], xmin, xmax-0.1)
+    pt[:,:,1] = torch.clamp(pt[:,:,1], ymin, ymax-0.1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], zmin, zmax-0.1)
+    pt[:,:,0] = pt[:,:,0]-xmin
+    pt[:,:,1] = pt[:,:,1]-ymin
+    pt[:,:,2] = pt[:,:,2]-zmin
+    new_vs = vs*reduce_factor
+    vx=int((xmax-xmin)/new_vs)
+    vy=int((ymax-ymin)/new_vs)
+    vz=int((zmax-zmin)/new_vs)
+    pt=(pt/new_vs).int()
+    pt[:,:,0] = torch.clamp(pt[:,:,0], 0, vx-1)
+    pt[:,:,1] = torch.clamp(pt[:,:,1], 0, vy-1)
+    pt[:,:,2] = torch.clamp(pt[:,:,2], 0, vz-1) 
+
+    vol_fea = []
+    for i in range(B):
+        idxs = (pt[i,:,0]*vy*vz+pt[i,:,1]*vz+pt[i,:,2]).long()
+        out = pt_fea.new_zeros((F, vx*vy*vz)) 
+        fea_i = torch.transpose(fea[i], 0,1) # F, N
+        out, argmax = scatter_max(fea_i, idxs, out=out)
+        vol_fea.append(out)
+    vol_fea = torch.stack(vol_fea, 0)
+    vol_fea =torch.reshape(vol_fea, (B, F, vx, vy, vz))
+    #vol_fea = torch.zeros((feature_dim, vxy, vxy, vz))
+    #for i in range(pt_fea.shape[0]):
+    #  vol_fea[:,pt[i,0], pt[i,1], pt[i,2]] = torch.max(vol_fea[:,pt[i,0], pt[i,1], pt[i,2]], pt_fea[i, 3:])
+    return vol_fea
+
+
+
+def voxel_to_pt_feature_batch(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
     # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
     # pt: [N, 3]
     B = fea.shape[0]
@@ -177,8 +213,32 @@ def voxel_to_pt_feature_batch(fea, pt,vs=0.06, reduce_factor=16, xymin=-3.85, xy
     pt_feature=pt_feature.view(B, N, F)
     return pt_feature
 
+def voxel_to_pt_feature_batch_sunrgbd(fea, pt,vs=0.0625, reduce_factor=16, xmin=-4.0, xmax=4.0, ymin=0.0, ymax=8.0, zmin=-2.5, zmax=2.5):
+    # fea: [Fchannel, VX/reduce_factor, VY/reduce_factor, VZ/reduce_factor]
+    # pt: [N, 3]
+    B = fea.shape[0]
+    N = pt.shape[1]
+    F = fea.shape[1]
+    vxy = fea.shape[2]
+    vz= fea.shape[4]
+    pt =pt.view(pt.shape[0]*pt.shape[1], -1) # b*N, 3
+    fea = (fea.contiguous().view(fea.shape[0],fea.shape[1], -1)).transpose(1,2) #  b vx*vy*vz f
+    fea =fea.contiguous().view(fea.shape[0]*fea.shape[1], -1) # b*vx*vy*vz, f  
+    pt[:,0] = torch.clamp(pt[:,0], xmin, xmax-0.1)
+    pt[:,1] = torch.clamp(pt[:,1], ymin, ymax-0.1)
+    pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
+    pt[:,0] = pt[:,0]-xmin
+    pt[:,1] = pt[:,1]-ymin
+    pt[:,2] = pt[:,2]-zmin
+    new_vs = vs*reduce_factor
+    pt = (pt/new_vs).int()
+    num_pt = pt.shape[0]
+    idxs = pt[:,0]*vy*vz+pt[:,1]*vz+pt[:,2]
+    pt_feature = torch.index_select(fea, 0,idxs.long()) 
+    pt_feature=pt_feature.view(B, N, F)
+    return pt_feature
 
-def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.85, xymax=3.85, zmin=-0.2, zmax=2.69):
+def pt_to_voxel_feature(pt_fea,vs=0.06, reduce_factor=16,  xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
     pt = pt_fea[:,0:3] #xyz
     pt = torch.clamp(pt, xymin, xymax-0.1)
     pt[:,2] = torch.clamp(pt[:,2], zmin, zmax-0.1)
