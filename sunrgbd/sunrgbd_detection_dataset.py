@@ -143,8 +143,16 @@ class SunrgbdDetectionVotesDataset(Dataset):
                 plane_back[:,[0, 4, 8]] = -1 * plane_back[:,[0, 4, 8]]
                 plane_upper[:,[0, 4, 8]] = -1 * plane_upper[:,[0, 4, 8]]
                 plane_lower[:,[0, 4, 8]] = -1 * plane_lower[:,[0, 4, 8]]
-                plane_left[:,[0, 4, 8]] = -1 * plane_left[:,[0, 4, 8]]
-                plane_right[:,[0, 4, 8]] = -1 * plane_right[:,[0, 4, 8]]
+
+                #plane_left[:,[0, 4, 8]] = -1 * plane_left[:,[0, 4, 8]]
+                #plane_right[:,[0, 4, 8]] = -1 * plane_right[:,[0, 4, 8]]
+                plane_left[:,1:4] = -1 * plane_left[:,1:4]
+                plane_left[:,5:8] = -1 * plane_left[:,5:8]
+                plane_left[:,9:12] = -1 * plane_left[:,9:12]
+                plane_right[:,1:4] = -1 * plane_right[:,1:4]
+                plane_right[:,5:8] = -1 * plane_right[:,5:8]
+                plane_right[:,9:12] = -1 * plane_right[:,9:12]
+                
                 
                 bboxes[:,0] = -1 * bboxes[:,0]
                 bboxes[:,6] = np.pi - bboxes[:,6]
@@ -170,6 +178,27 @@ class SunrgbdDetectionVotesDataset(Dataset):
             point_cloud[:,0:3] = np.dot(point_cloud[:,0:3], np.transpose(rot_mat))
             plane_label[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_label[:,0:3])))
 
+            plane_left[:,0:4] = np.nan_to_num(plane_left[:,0:4] / np.linalg.norm(plane_left[:,0:3], axis=1, keepdims=True))
+            plane_right[:,0:4] = np.nan_to_num(plane_right[:,0:4] / np.linalg.norm(plane_right[:,0:3], axis=1, keepdims=True))
+            plane_upper[:,0:4] = np.nan_to_num(plane_upper[:,0:4] / np.linalg.norm(plane_upper[:,0:3], axis=1, keepdims=True))
+            plane_lower[:,0:4] = np.nan_to_num(plane_lower[:,0:4] / np.linalg.norm(plane_lower[:,0:3], axis=1, keepdims=True))
+            plane_front[:,0:4] = np.nan_to_num(plane_front[:,0:4] / np.linalg.norm(plane_front[:,0:3], axis=1, keepdims=True))
+            plane_back[:,0:4] = np.nan_to_num(plane_back[:,0:4] / np.linalg.norm(plane_back[:,0:3], axis=1, keepdims=True))
+
+            plane_left[:,4:8] = np.nan_to_num(plane_left[:,4:8] / np.linalg.norm(plane_left[:,4:7], axis=1, keepdims=True))
+            plane_right[:,4:8] = np.nan_to_num(plane_right[:,4:8] / np.linalg.norm(plane_right[:,4:7], axis=1, keepdims=True))
+            plane_upper[:,4:8] = np.nan_to_num(plane_upper[:,4:8] / np.linalg.norm(plane_upper[:,4:7], axis=1, keepdims=True))
+            plane_lower[:,4:8] = np.nan_to_num(plane_lower[:,4:8] / np.linalg.norm(plane_lower[:,4:7], axis=1, keepdims=True))
+            plane_front[:,4:8] = np.nan_to_num(plane_front[:,4:8] / np.linalg.norm(plane_front[:,4:7], axis=1, keepdims=True))
+            plane_back[:,4:8] = np.nan_to_num(plane_back[:,4:8] / np.linalg.norm(plane_back[:,4:7], axis=1, keepdims=True))
+
+            plane_left[:,8:12] = np.nan_to_num(plane_left[:,8:12] / np.linalg.norm(plane_left[:,8:11], axis=1, keepdims=True))
+            plane_right[:,8:12] = np.nan_to_num(plane_right[:,8:12] / np.linalg.norm(plane_right[:,8:11], axis=1, keepdims=True))
+            plane_upper[:,8:12] = np.nan_to_num(plane_upper[:,8:12] / np.linalg.norm(plane_upper[:,8:11], axis=1, keepdims=True))
+            plane_lower[:,8:12] = np.nan_to_num(plane_lower[:,8:12] / np.linalg.norm(plane_lower[:,8:11], axis=1, keepdims=True))
+            plane_front[:,8:12] = np.nan_to_num(plane_front[:,8:12] / np.linalg.norm(plane_front[:,8:11], axis=1, keepdims=True))
+            plane_back[:,8:12] = np.nan_to_num(plane_back[:,8:12] / np.linalg.norm(plane_back[:,8:11], axis=1, keepdims=True))
+            
             plane_left[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_left[:,0:3])))
             plane_right[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_right[:,0:3])))
             plane_upper[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_upper[:,0:3])))
