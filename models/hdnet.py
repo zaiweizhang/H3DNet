@@ -88,19 +88,19 @@ class HDNet(nn.Module):
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
         #self.conv_sem1 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem1 = torch.nn.Conv1d(512+128,128,1) ##Pointfeature + input
+        self.conv_sem1 = torch.nn.Conv1d(128+128,128,1) ##Pointfeature + input
         self.conv_sem2 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem1 = torch.nn.BatchNorm1d(128)
         self.dropout_sem1 = torch.nn.Dropout(0.5)
 
         #self.conv_sem3 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem3 = torch.nn.Conv1d(512+128,128,1) ##Pointfeature + input
+        self.conv_sem3 = torch.nn.Conv1d(128+128,128,1) ##Pointfeature + input
         self.conv_sem4 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem2 = torch.nn.BatchNorm1d(128)
         self.dropout_sem2 = torch.nn.Dropout(0.5)
 
         #self.conv_sem5 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem5 = torch.nn.Conv1d(512+128,128,1) ##Pointfeature + input
+        self.conv_sem5 = torch.nn.Conv1d(128+128,128,1) ##Pointfeature + input
         self.conv_sem6 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem3 = torch.nn.BatchNorm1d(128)
         self.dropout_sem3 = torch.nn.Dropout(0.5)
@@ -227,12 +227,12 @@ class HDNet(nn.Module):
         end_points['back_off'] = net_back[:,3,:].contiguous()
 
         ### Semantic Segmentation
-        #features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
-        #features_combine_sem_vox = torch.cat((features_sem, features_vox.detach()), 1)
-        #features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
-        features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
-        features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature
-        features_combine_sem_plane = torch.cat((features_sem, plane_feature), 1)#plane_feature
+        features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
+        features_combine_sem_corner = torch.cat((features_sem, features.detach()), 1)
+        features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
+        #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
+        #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature
+        #features_combine_sem_plane = torch.cat((features_sem, plane_feature), 1)#plane_feature
 
         #features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
         net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_combine_sem_point))))
