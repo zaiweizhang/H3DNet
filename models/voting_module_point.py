@@ -28,7 +28,7 @@ class VotingPointModule(nn.Module):
         super().__init__()
         self.vote_factor = vote_factor
         self.in_dim = seed_feature_dim
-        self.out_dim = self.in_dim # due to residual feature, in_dim has to be == out_dim
+        self.out_dim = 0#self.in_dim # due to residual feature, in_dim has to be == out_dim
         self.conv1 = torch.nn.Conv1d(self.in_dim+3, self.in_dim, 1)
         self.conv2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv3 = torch.nn.Conv1d(self.in_dim, (3+self.out_dim) * self.vote_factor, 1)
@@ -126,20 +126,20 @@ class VotingPointModule(nn.Module):
         vote_xyz_corner = seed_xyz.unsqueeze(2) + offset
         vote_xyz_corner = vote_xyz_corner.contiguous().view(batch_size, num_vote, 3)
 
-        residual_features = net[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
-        vote_features = seed_features.transpose(2,1).unsqueeze(2) + residual_features
+        #residual_features = net[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
+        #vote_features = seed_features.transpose(2,1).unsqueeze(2) + residual_features
         #vote_features = residual_features
-        vote_features = vote_features.contiguous().view(batch_size, num_vote, self.out_dim)
-        vote_features = vote_features.transpose(2,1).contiguous()
+        #vote_features = vote_features.contiguous().view(batch_size, num_vote, self.out_dim)
+        #vote_features = vote_features.transpose(2,1).contiguous()
 
-        residual_features_corner = net_corner[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
-        vote_features_corner = seed_features.transpose(2,1).unsqueeze(2) + residual_features_corner
+        #residual_features_corner = net_corner[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
+        #vote_features_corner = seed_features.transpose(2,1).unsqueeze(2) + residual_features_corner
         #vote_features_corner = residual_features_corner
-        vote_features_corner = vote_features_corner.contiguous().view(batch_size, num_vote, self.out_dim)
-        vote_features_corner = vote_features_corner.transpose(2,1).contiguous()
+        #vote_features_corner = vote_features_corner.contiguous().view(batch_size, num_vote, self.out_dim)
+        #vote_features_corner = vote_features_corner.transpose(2,1).contiguous()
                 
         #return vote_xyz, vote_features, vote_xyz_corner
-        return vote_xyz, vote_xyz_corner, vote_features, vote_features_corner
+        return vote_xyz, vote_xyz_corner#, vote_features, vote_features_corner
  
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()

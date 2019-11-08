@@ -258,7 +258,7 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
     seed_gt_corner += seed_xyz
     seed_pred_corner = end_points['vote_xyz_corner'][:,:,:3].detach().cpu().numpy()
 
-    seed_gt_sem = torch.gather(end_points['point_sem_cls_label'], 1, seed_inds).detach().cpu().numpy()
+    seed_gt_sem = torch.gather(end_points['point_sem_cls_label'][...,0], 1, seed_inds).detach().cpu().numpy()
     seed_pred_sem = end_points['pred_sem_class'].detach().cpu().numpy()
     seed_pred_sem3 = end_points['pred_sem_class_top3'].detach().cpu().numpy()
         
@@ -334,6 +334,7 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
         #sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper_rot[i,...], 'gt_off_upper': seed_gt_upper_off[i,...], 'gt_rot_lower': seed_gt_lower_rot[i,...], 'gt_off_lower': seed_gt_lower_off[i,...], 'gt_rot_right': seed_gt_right_rot[i,...], 'gt_off_right': seed_gt_right_off[i,...], 'gt_rot_left': seed_gt_left_rot[i,...], 'gt_off_left': seed_gt_left_off[i,...], 'gt_rot_front': seed_gt_front_rot[i,...], 'gt_off_front': seed_gt_front_off[i,...], 'gt_rot_back': seed_gt_back_rot[i,...], 'gt_off_back': seed_gt_back_off[i,...], 'rot_upper': end_points['upper_rot'][i,...].detach().cpu().numpy(), 'off_upper': end_points['upper_off'][i,...].detach().cpu().numpy(), 'rot_lower': end_points['lower_rot'][i,...].detach().cpu().numpy(), 'off_lower': end_points['lower_off'][i,...].detach().cpu().numpy(), 'rot_front': end_points['front_rot'][i,...].detach().cpu().numpy(), 'off_front': end_points['front_off'][i,...].detach().cpu().numpy(), 'rot_back': end_points['back_rot'][i,...].detach().cpu().numpy(), 'off_back': end_points['back_off'][i,...].detach().cpu().numpy(), 'rot_left': end_points['left_rot'][i,...].detach().cpu().numpy(), 'off_left': end_points['left_off'][i,...].detach().cpu().numpy(), 'rot_right': end_points['right_rot'][i,...].detach().cpu().numpy(), 'off_right': end_points['right_off'][i,...].detach().cpu().numpy()})
         sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper[i,...], 'gt_lower': seed_gt_lower[i,...], 'gt_right': seed_gt_right[i,...], 'gt_left': seed_gt_left[i,...], 'gt_front': seed_gt_front[i,...], 'gt_back': seed_gt_back[i,...], 'pred_upper': pred_upper[i,...], 'pred_lower': pred_lower[i,...], 'pred_front': pred_front[i,...], 'pred_back': pred_back[i,...], 'pred_left': pred_left[i,...], 'pred_right': pred_right[i,...]})
 
+    """
     # Voxel cues
     sem_path =  '/tmp2/bosun/data/scannet/scannet_train_detection_data_vox/'
     pred_center_vox = end_points['vox_pred1']
@@ -368,7 +369,7 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
        
         sio.savemat(os.path.join(dump_dir, name+'_center_0.06_vox.mat'), {'center_vox': pt_center, 'center_label':center_label})
         sio.savemat(os.path.join(dump_dir, name+'_corner_0.06_vox.mat'), {'corner_vox': pt_corner, 'corner_label':corner_label})
-
+    """
 
     
     

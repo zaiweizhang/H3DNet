@@ -28,7 +28,7 @@ class VotingPlaneModule(nn.Module):
         super().__init__()
         self.vote_factor = 1#vote_factor
         self.in_dim = seed_feature_dim
-        self.out_dim = 3+2+self.in_dim#xyz rotation + d1 + d2
+        self.out_dim = 3+2#+self.in_dim#xyz rotation + d1 + d2
 
         self.conv_upper1 = torch.nn.Conv1d(self.in_dim + 3 + 4, self.in_dim, 1)
         self.conv_upper2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
@@ -114,13 +114,13 @@ class VotingPlaneModule(nn.Module):
         net_left = net_left_right[:,:4,:]
         net_right = torch.cat((net_left_right[:,:3,:], net_left_right[:,4,:].unsqueeze(1)), 1)
 
-        residual_features1 = net_upper_lower[:,5:,:] # (batch_size, num_seed, vote_factor, out_dim)
-        residual_features2 = net_front_back[:,5:,:]
-        residual_features3 = net_left_right[:,5:,:]
-        vote_features = seed_features + residual_features1 + residual_features2 + residual_features3
+        #residual_features1 = net_upper_lower[:,5:,:] # (batch_size, num_seed, vote_factor, out_dim)
+        #residual_features2 = net_front_back[:,5:,:]
+        #residual_features3 = net_left_right[:,5:,:]
+        #vote_features = seed_features + residual_features1 + residual_features2 + residual_features3
         #vote_features = residual_features1 + residual_features2 + residual_features3
         
-        return net_upper, net_lower, net_left, net_right, net_front, net_back, vote_features
+        return net_upper, net_lower, net_left, net_right, net_front, net_back#, vote_features
  
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()
