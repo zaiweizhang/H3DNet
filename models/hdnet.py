@@ -94,7 +94,7 @@ class HDNet(nn.Module):
         self.dropout_sem1 = torch.nn.Dropout(0.5)
 
         #self.conv_sem3 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem3 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
+        self.conv_sem3 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
         self.conv_sem4 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem2 = torch.nn.BatchNorm1d(128)
         self.dropout_sem2 = torch.nn.Dropout(0.5)
@@ -208,29 +208,11 @@ class HDNet(nn.Module):
         xyz_plane = torch.cat((xyz, seed_plane), -1)
         
         #net_upper, net_lower, net_left, net_right, net_front, net_back, plane_feature = self.vgen_plane(xyz_plane, features_combine_plane)
-        net_upper, net_lower, net_left, net_right, net_front, net_back = self.vgen_plane(xyz_plane, features_combine_plane)
-
-        end_points['upper_rot'] = net_upper[:,:3,:].transpose(2,1).contiguous()
-        end_points['upper_off'] = net_upper[:,3,:].contiguous()
-
-        end_points['lower_rot'] = net_lower[:,:3,:].transpose(2,1).contiguous()
-        end_points['lower_off'] = net_lower[:,3,:].contiguous()
-
-        end_points['left_rot'] = net_left[:,:3,:].transpose(2,1).contiguous()
-        end_points['left_off'] = net_left[:,3,:].contiguous()
-
-        end_points['right_rot'] = net_right[:,:3,:].transpose(2,1).contiguous()
-        end_points['right_off'] = net_right[:,3,:].contiguous()
-
-        end_points['front_rot'] = net_front[:,:3,:].transpose(2,1).contiguous()
-        end_points['front_off'] = net_front[:,3,:].contiguous()
-
-        end_points['back_rot'] = net_back[:,:3,:].transpose(2,1).contiguous()
-        end_points['back_off'] = net_back[:,3,:].contiguous()
+        end_points = self.vgen_plane(xyz_plane, features_combine_plane, end_points)
 
         ### Semantic Segmentation
         features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
-        features_combine_sem_corner = torch.cat((features_sem, features_vox.detach()), 1)
+        features_combine_sem_corner = torch.cat((features_sem, features.detach()), 1)
         features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
         #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
         #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature

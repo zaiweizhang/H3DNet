@@ -186,7 +186,7 @@ def compute_center_plane_loss(end_points):
     reg_loss = torch.sum(reg_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
     return reg_loss
 
-def compute_plane_loss(end_points, mode='upper'):
+def compute_plane_loss_old(end_points, mode='upper'):
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'+'plane'].shape[0]
     num_seed = end_points['seed_xyz'+'plane'].shape[1] # B,num_seed,3
@@ -223,6 +223,73 @@ def compute_plane_loss(end_points, mode='upper'):
     return vote_rot_loss * 0.5 + vote_off_loss, vote_rot_loss*0.5, vote_off_loss
     #plane_upper_loss, plane_lower_loss, plane_left_loss, plane_right_loss, plane_front_loss, plane_back_loss, plane_support_loss, plane_bsupport_loss = 
 
+def compute_plane_loss(end_points, mode='x'):
+    # Load ground truth votes and assign them to seed points
+    batch_size = end_points['seed_xyz'+'plane'].shape[0]
+    num_seed = end_points['seed_xyz'+'plane'].shape[1] # B,num_seed,3
+    seed_inds = end_points['seed_inds'+'plane'].long() # B,num_seed in [0,num_points-1]
+    
+    # Get groundtruth votes for the seed points
+    # vote_label_mask: Use gather to select B,num_seed from B,num_point
+    #   non-object point has no GT vote mask = 0, object point has mask = 1
+    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
+    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
+    seed_gt_votes_mask = torch.gather(end_points['plane_label_mask'], 1, seed_inds)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
+    seed_inds_expand_off = seed_inds.view(batch_size,num_seed,1).repeat(1,1,GT_VOTE_FACTOR)
+
+    rot_meta = torch.gather(end_points['plane_votes_'+mode], 1, seed_inds_expand)
+    off0_meta = torch.gather(end_points['plane_votes_'+mode+'0'], 1, seed_inds_expand_off)
+    off1_meta = torch.gather(end_points['plane_votes_'+mode+'1'], 1, seed_inds_expand_off)
+    
+    ### Loss for the angle class
+    criterion_sem_cls = nn.CrossEntropyLoss(reduction='none')
+
+    end_points[mode+'_gt'] = rot_meta[:,:,[0,3,6]].long()
+    
+    angle_loss1 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,0].long())
+    angle_loss2 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,3].long())
+    angle_loss3 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,6].long())
+
+    angle_loss, _ = torch.min(torch.stack((angle_loss1, angle_loss2, angle_loss3), 2), dim=2)
+    angle_loss = torch.sum(angle_loss*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    
+    ### Loss for the sign class
+    plane_sign_reshape = end_points[mode+'_sign'].view(batch_size*num_seed, -1, 1)
+    seed_sign = rot_meta[:,:,[2,5,8]]
+    seed_sign_reshape = seed_sign.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_sign_reshape, seed_sign_reshape, l1=True)
+    sign_dist, _ = torch.min(dist2, dim=1)
+    sign_dist = sign_dist.view(batch_size, num_seed)
+    sign_loss = torch.sum(sign_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for res regression    
+    plane_res_reshape = end_points[mode+'_res'].view(batch_size*num_seed, -1, 1)
+    seed_res = rot_meta[:,:,[1,4,7]]
+    seed_res_reshape = seed_res.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_res_reshape, seed_res_reshape, l1=True)
+    res_dist, _ = torch.min(dist2, dim=1)
+    res_dist = res_dist.view(batch_size, num_seed)
+    res_loss = torch.sum(res_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for off0 regression    
+    plane_off0_reshape = end_points[mode+'_off0'].view(batch_size*num_seed, -1, 1)
+    seed_off0_reshape = off0_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_off0_reshape, seed_off0_reshape, l1=True)
+    off0_dist, _ = torch.min(dist2, dim=1)
+    off0_dist = off0_dist.view(batch_size, num_seed)
+    off0_loss = torch.sum(off0_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for off1 regression
+    plane_off1_reshape = end_points[mode+'_off1'].view(batch_size*num_seed, -1, 1)
+    seed_off1_reshape = off1_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_off1_reshape, seed_off1_reshape, l1=True)
+    off1_dist, _ = torch.min(dist2, dim=1)
+    off1_dist = off1_dist.view(batch_size, num_seed)
+    off1_loss = torch.sum(off1_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    
+    return angle_loss + sign_loss + res_loss + off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
+    
 def compute_objcue_vote_loss(end_points):
     """ Compute vote loss: Match predicted votes to GT votes.
 
@@ -547,37 +614,30 @@ def get_loss(end_points, config):
         #end_points['vote_loss_bsupport_offset'] = torch.tensor(0)
 
     if end_points['use_plane']:
-        plane_upper_loss, upper_rot, upper_off = compute_plane_loss(end_points, mode='upper')
-        plane_lower_loss, lower_rot, lower_off = compute_plane_loss(end_points, mode='lower')
-        plane_left_loss, left_rot, left_off = compute_plane_loss(end_points, mode='left')
-        plane_right_loss, right_rot, right_off = compute_plane_loss(end_points, mode='right')
-        plane_front_loss, front_rot, front_off = compute_plane_loss(end_points, mode='front')
-        plane_back_loss, back_rot, back_off = compute_plane_loss(end_points, mode='back')
+        plane_z_loss, z_angle, z_res, z_sign, z_off0, z_off1 = compute_plane_loss(end_points, mode='z')
+        plane_x_loss, x_angle, x_res, x_sign, x_off0, x_off1 = compute_plane_loss(end_points, mode='x')
+        plane_y_loss, y_angle, y_res, y_sign, y_off0, y_off1 = compute_plane_loss(end_points, mode='y')
 
-        end_points['plane_upper_loss'] = plane_upper_loss
-        end_points['plane_upper_loss_rot'] = upper_rot
-        end_points['plane_upper_loss_off'] = upper_off
-        
-        end_points['plane_lower_loss'] = plane_lower_loss
-        end_points['plane_lower_loss_rot'] = lower_rot
-        end_points['plane_lower_loss_off'] = lower_off
-        
-        end_points['plane_left_loss'] = plane_left_loss
-        end_points['plane_left_loss_rot'] = left_rot
-        end_points['plane_left_loss_off'] = left_off
-        
-        end_points['plane_right_loss'] = plane_right_loss
-        end_points['plane_right_loss_rot'] = right_rot
-        end_points['plane_right_loss_off'] = right_off
-        
-        end_points['plane_front_loss'] = plane_front_loss
-        end_points['plane_front_loss_rot'] = front_rot
-        end_points['plane_front_loss_off'] = front_off
-        
-        end_points['plane_back_loss'] = plane_back_loss
-        end_points['plane_back_loss_rot'] = back_rot
-        end_points['plane_back_loss_off'] = back_off
-    
+        end_points['plane_x_loss'] = plane_x_loss
+        end_points['plane_x_loss_angle'] = x_angle
+        end_points['plane_x_loss_res'] = x_res
+        end_points['plane_x_loss_sign'] = x_sign
+        end_points['plane_x_loss_off0'] = x_off0
+        end_points['plane_x_loss_off1'] = x_off1
+
+        end_points['plane_y_loss'] = plane_y_loss
+        end_points['plane_y_loss_angle'] = y_angle
+        end_points['plane_y_loss_res'] = y_res
+        end_points['plane_y_loss_sign'] = y_sign
+        end_points['plane_y_loss_off0'] = y_off0
+        end_points['plane_y_loss_off1'] = y_off1
+
+        end_points['plane_z_loss'] = plane_z_loss
+        end_points['plane_z_loss_angle'] = z_angle
+        end_points['plane_z_loss_res'] = z_res
+        end_points['plane_z_loss_sign'] = z_sign
+        end_points['plane_z_loss_off0'] = z_off0
+        end_points['plane_z_loss_off1'] = z_off1
     else:
         end_points['plane_upper_loss'] = torch.tensor(0)
         end_points['plane_lower_loss'] = torch.tensor(0)
@@ -587,18 +647,14 @@ def get_loss(end_points, config):
         end_points['plane_back_loss'] = torch.tensor(0)
 
     if end_points['use_plane']:
-        loss_plane = plane_upper_loss + plane_lower_loss + plane_left_loss + plane_right_loss + plane_front_loss + plane_back_loss
+        #loss_plane = plane_upper_loss + plane_lower_loss + plane_left_loss + plane_right_loss + plane_front_loss + plane_back_loss
+        loss_plane = plane_x_loss + plane_y_loss + plane_z_loss
         loss_plane *= 10
         end_points['loss_plane'] = loss_plane
-
-        loss_plane_corner = compute_corner_plane_loss(end_points)*100*50
-        end_points['loss_plane_corner'] = loss_plane_corner
-
-        loss_plane_center = compute_center_plane_loss(end_points)*100*50
-        end_points['loss_plane_center'] = loss_plane_center
+        
         loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
-        #return loss, end_points
+        return loss, end_points
 
     ### Init Proposal loss
     # Vote loss
