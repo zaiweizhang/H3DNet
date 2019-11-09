@@ -609,6 +609,25 @@ def get_loss(end_points, config):
         loss: pytorch scalar tensor
         end_points: dict
     """
+    '''
+    sunrgbd:
+    wcenter = 1
+    wcorner = 1
+    wfocal = 0
+    wl2 = 3
+    w9_fcen = 100
+    w8_fcen = 100
+    w9_fcor = 100
+    w8_fcor = 100
+
+    w9_cen = 50
+    w8_cen = 350
+    w5_cen = 0
+    w9_cor = 100
+    w8_cor = 350
+    w5_cor = 0
+
+    '''
     wcenter = 1
     wcorner = 1
     wfocal = 2
