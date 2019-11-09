@@ -609,14 +609,14 @@ def get_loss(end_points, config):
         loss: pytorch scalar tensor
         end_points: dict
     """
-    wcenter = 3
-    wcorner = 2
+    wcenter = 1
+    wcorner = 1
     wfocal = 2
     wl2 = 1
-    w9_fcen = 25
-    w8_fcen = 25
-    w9_fcor = 25
-    w8_fcor = 25
+    w9_fcen = 30
+    w8_fcen = 30
+    w9_fcor = 30
+    w8_fcor = 30
 
     w9_cen = 20
     w8_cen = 250
@@ -640,9 +640,9 @@ def get_loss(end_points, config):
 
         voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
         voxel_corner_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
-        end_points['voxel_loss_corner'] = wfocal*voxel_corner_loss + wl2*voxel_corner_loss_l2
+        end_points['voxel_loss_corner'] = wfocal*voxel_corner_loss_focal + wl2*voxel_corner_loss_l2
 
-        end_points['voxel_loss'] = voxel_center_loss*wcenter + voxel_corner_loss*wcorner
+        end_points['voxel_loss'] =  end_points['voxel_loss_center']*wcenter + end_points['voxel_loss_corner']*wcorner
         #end_points['vote_loss_support_center'] = support_center
         #end_points['vote_loss_bsupport_center'] = bsupport_center
         #end_points['vote_loss_support_offset'] = support_offset
