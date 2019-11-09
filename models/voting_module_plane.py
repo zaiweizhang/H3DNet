@@ -35,7 +35,7 @@ class VotingPlaneModule(nn.Module):
         #self.conv_upper3 = torch.nn.Conv1d(self.in_dim, (self.out_dim) * self.vote_factor, 1)
         self.conv_upper3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
         self.conv_upper3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
-        self.conv_upper3_sign = torch.nn.Conv1d(self.in_dim, 2, 1) ### Binary class
+        self.conv_upper3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_upper3_off = torch.nn.Conv1d(self.in_dim, 2, 1) ### Vote for 2 offset
         
         #self.conv_lower1 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
@@ -46,7 +46,7 @@ class VotingPlaneModule(nn.Module):
         self.conv_front2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv_front3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
         self.conv_front3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
-        self.conv_front3_sign = torch.nn.Conv1d(self.in_dim, 2, 1) ### Binary class
+        self.conv_front3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_front3_off = torch.nn.Conv1d(self.in_dim, 2, 1)
 
         #self.conv_back1 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
@@ -57,7 +57,7 @@ class VotingPlaneModule(nn.Module):
         self.conv_left2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv_left3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
         self.conv_left3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
-        self.conv_left3_sign = torch.nn.Conv1d(self.in_dim, 2, 1) ### Binary class
+        self.conv_left3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_left3_off = torch.nn.Conv1d(self.in_dim, 2, 1)
         
         #self.conv_right1 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
@@ -106,8 +106,10 @@ class VotingPlaneModule(nn.Module):
         end_points['z_res'] = self.conv_upper3_res(net_upper)
         end_points['z_sign'] = self.conv_upper3_sign(net_upper)
         upper_off = self.conv_upper3_off(net_upper)
-        end_points['z_off0'] = seed_xyz[:,:,-1] + upper_off.contiguous().transpose(2,1)[:,:,0]
-        end_points['z_off1'] = seed_xyz[:,:,-1] + upper_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['z_off0'] = upper_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['z_off1'] = upper_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['z_d0'] = seed_xyz[:,:,-1] + upper_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['z_d1'] = seed_xyz[:,:,-1] + upper_off.contiguous().transpose(2,1)[:,:,1]
         
         net_front = F.relu(self.bn_front1(self.conv_front1(newseed_features)))
         #net_front = torch.cat((seed_xyz.transpose(2,1).contiguous(), net_front), 1)
@@ -118,8 +120,10 @@ class VotingPlaneModule(nn.Module):
         end_points['y_res'] = self.conv_front3_res(net_front)
         end_points['y_sign'] = self.conv_front3_sign(net_front)
         front_off = self.conv_front3_off(net_front)
-        end_points['y_off0'] = seed_xyz[:,:,-1] + front_off.contiguous().transpose(2,1)[:,:,0]
-        end_points['y_off1'] = seed_xyz[:,:,-1] + front_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['y_off0'] = front_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['y_off1'] = front_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['y_d0'] = seed_xyz[:,:,-1] + front_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['y_d1'] = seed_xyz[:,:,-1] + front_off.contiguous().transpose(2,1)[:,:,1]
 
         net_left = F.relu(self.bn_left1(self.conv_left1(newseed_features)))
         #net_left = torch.cat((seed_xyz.transpose(2,1).contiguous(), net_left), 1)
@@ -130,8 +134,10 @@ class VotingPlaneModule(nn.Module):
         end_points['x_res'] = self.conv_left3_res(net_left)
         end_points['x_sign'] = self.conv_left3_sign(net_left)
         left_off = self.conv_left3_off(net_left)
-        end_points['x_off0'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,0]
-        end_points['x_off1'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['x_off0'] = left_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['x_off1'] = left_off.contiguous().transpose(2,1)[:,:,1]
+        end_points['x_d0'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,0]
+        end_points['x_d1'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,1]
 
         #residual_features1 = net_upper_lower[:,5:,:] # (batch_size, num_seed, vote_factor, out_dim)
         #residual_features2 = net_front_back[:,5:,:]

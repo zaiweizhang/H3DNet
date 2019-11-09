@@ -272,8 +272,8 @@ def compute_plane_loss(end_points, mode='x'):
     res_dist = res_dist.view(batch_size, num_seed)
     res_loss = torch.sum(res_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
 
-    ### Loss for off0 regression    
-    plane_off0_reshape = end_points[mode+'_off0'].view(batch_size*num_seed, -1, 1)
+    ### Loss for off0 regression
+    plane_off0_reshape = end_points[mode+'_off0'].contiguous().view(batch_size*num_seed, -1, 1)
     seed_off0_reshape = off0_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
     dist1, _, dist2, _ = nn_distance(plane_off0_reshape, seed_off0_reshape, l1=True)
     off0_dist, _ = torch.min(dist2, dim=1)
@@ -281,7 +281,7 @@ def compute_plane_loss(end_points, mode='x'):
     off0_loss = torch.sum(off0_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
 
     ### Loss for off1 regression
-    plane_off1_reshape = end_points[mode+'_off1'].view(batch_size*num_seed, -1, 1)
+    plane_off1_reshape = end_points[mode+'_off1'].contiguous().view(batch_size*num_seed, -1, 1)
     seed_off1_reshape = off1_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
     dist1, _, dist2, _ = nn_distance(plane_off1_reshape, seed_off1_reshape, l1=True)
     off1_dist, _ = torch.min(dist2, dim=1)
