@@ -210,136 +210,6 @@ class ResNet_Autoencoder(nn.Module):
         pred['latent_feature']=latent_feature
         return pred
 
-
-class CenterCornerNet(nn.Module):
-    '''
-    Input: Voxel [b, 1, vx, vy, vz]
-    Output: Center voxel [b, 1, vx, vy, vz]
-    '''
-    def __init__(self,
-                 num_filters=12,
-                 encoder_filters=24,
-                 block=BasicBlock,
-                 layers=[1,1,1,1],
-                 c_in=1,
-                 c_out=1,
-                 shortcut_type='B'):
-        self.inplanes = c_in
-        self.outplanes = c_out
-        super(CenterCornerNet, self).__init__()
-        self.encoder_filters = encoder_filters
-        self.conv1 = conv3d_block(self.inplanes, self.encoder_filters, kernel_size=4,stride=2)
-        self.layer1 = self._make_layer(block, self.encoder_filters, self.encoder_filters, layers[0], shortcut_type)
-        
-        self.conv2 = conv3d_block(self.encoder_filters, self.encoder_filters*2, kernel_size=4,stride=2)
-        self.layer2 = self._make_layer(block, self.encoder_filters*2, self.encoder_filters*2, layers[1], shortcut_type)
-        
-        self.conv3 = conv3d_block(self.encoder_filters*2, self.encoder_filters*4, kernel_size=4,stride=2)
-        self.layer3 = self._make_layer(block, self.encoder_filters*4, self.encoder_filters*4, layers[2], shortcut_type)
-        
-        self.conv4 = conv3d_block(self.encoder_filters*4, self.encoder_filters*8, kernel_size=4,stride=2)
-        self.layer4 = self._make_layer(block, self.encoder_filters*8, self.encoder_filters*8, layers[3], shortcut_type)
-
-        self.up1 = conv_trans_block_3d(self.encoder_filters*8, num_filters*4, kernel_size=4, stride=2)
-        self.up_layer1 = self._make_layer(block, num_filters*4, num_filters*4, layers[3], shortcut_type)
-        
-        self.up2 = conv_trans_block_3d(num_filters*4, num_filters*2, kernel_size=4, stride=2)
-        self.up_layer2 = self._make_layer(block, num_filters*2, num_filters*2, layers[2], shortcut_type)
-    
-        self.up3 = conv_trans_block_3d(num_filters*2, num_filters*1, kernel_size=4, stride=2)
-        self.up_layer3 = self._make_layer(block, num_filters*1, num_filters*1, layers[1], shortcut_type)
-        
-        self.up4 = conv_trans_block_3d(num_filters*1, num_filters//2, kernel_size=4, stride=2)
-        self.up_layer4 = self._make_layer(block, num_filters//2, num_filters//2, layers[0], shortcut_type)
-
-        self.pred_layer = conv3d(num_filters//2, self.outplanes, kernel_size=3, stride=1)
-        
-        self.up12 = conv_trans_block_3d(self.encoder_filters*8, num_filters*4, kernel_size=4, stride=2)
-        self.up_layer12 = self._make_layer(block, num_filters*4, num_filters*4, layers[3], shortcut_type)
-        
-        self.up22 = conv_trans_block_3d(num_filters*4, num_filters*2, kernel_size=4, stride=2)
-        self.up_layer22 = self._make_layer(block, num_filters*2, num_filters*2, layers[2], shortcut_type)
-    
-        self.up32 = conv_trans_block_3d(num_filters*2, num_filters*1, kernel_size=4, stride=2)
-        self.up_layer32 = self._make_layer(block, num_filters*1, num_filters*1, layers[1], shortcut_type)
-        
-        self.up42 = conv_trans_block_3d(num_filters*1, num_filters//2, kernel_size=4, stride=2)
-        self.up_layer42 = self._make_layer(block, num_filters//2, num_filters//2, layers[0], shortcut_type)
-
-        self.pred_layer2 = conv3d(num_filters//2, self.outplanes, kernel_size=3, stride=1)
-
-    def _make_layer(self, block, inplanes, planes, blocks, shortcut_type, stride=1):
-        downsample = None
-        if stride != 1 or inplanes != planes * block.expansion:
-            if shortcut_type == 'A':
-                downsample = partial(
-                    downsample_basic_block,
-                    planes=planes * block.expansion,
-                    stride=stride)
-            else:
-                downsample = nn.Sequential(
-                    nn.Conv3d(
-                        self.inplanes,
-                        planes * block.expansion,
-                        kernel_size=1,
-                        stride=stride,
-                        bias=False), nn.BatchNorm3d(planes * block.expansion))
-
-        layers = []
-        layers.append(block(inplanes, planes, stride, downsample))
-        inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        # print('conv1', x.shape)
-        x = self.layer1(x)
-        x = self.conv2(x)
-        # print('conv2', x.shape)
-        x = self.layer2(x)
-        x = self.conv3(x)
-        # print('conv3', x.shape)
-        x = self.layer3(x)
-        x = self.conv4(x)
-        # print('conv4', x.shape)
-        x = self.layer4(x)
-        latent_feature = x
-        
-        x = self.up1(latent_feature)
-        # print('up1', x.shape)
-        x = self.up_layer1(x)
-        x = self.up2(x)
-        # print('up2', x.shape)
-        x = self.up_layer2(x)
-        x = self.up3(x)
-        # print('up3', x.shape)
-        x = self.up_layer3(x)
-        x = self.up4(x)
-        # print('up4' ,x.shape)
-        x = self.up_layer4(x)
-        pred_center = self.pred_layer(x)
-        
-        x = self.up12(latent_feature)
-        # print('up1', x.shape)
-        x = self.up_layer12(x)
-        x = self.up22(x)
-        # print('up2', x.shape)
-        x = self.up_layer22(x)
-        x = self.up32(x)
-        # print('up3', x.shape)
-        x = self.up_layer32(x)
-        x = self.up42(x)
-        # print('up4' ,x.shape)
-        x = self.up_layer42(x)
-        pred_corner = self.pred_layer2(x)
-        pred={}
-        pred['pred_center'] = pred_center
-        pred['pred_corner'] = pred_corner
-        pred['latent_feature'] = latent_feature
-        return pred
-
 class TwoStreamNet(nn.Module):
     '''
     Input: Voxel [b, 1, vx, vy, vz]
@@ -648,6 +518,8 @@ class TwoStreamNetDecoder(nn.Module):
         # print('up4' ,x.shape)
         x = self.up_layer42(x)
         pred2 = self.pred_layer2(x)
+        pred1 = torch.nn.Sigmoid()(pred1)
+        pred2 = torch.nn.Sigmoid()(pred2)
         end_points['vox_pred1'] = pred1
         end_points['vox_pred2'] = pred2
         return end_points
@@ -680,6 +552,36 @@ def get_loss(pred, target, w95, w8, w5):
     mask = (target>0.3).float()
     loss = l2_loss
     return loss
+
+def focal_loss(pred, gt, w10=1.0, w8=0.0):
+  ''' Modified focal loss. Exactly the same as CornerNet.
+      Runs faster and costs a little bit more memory
+    Arguments:
+      pred (batch x c x h x w)
+      gt_regr (batch x c x h x w)
+  '''
+  pos_inds = gt.eq(1).float()
+  pos_inds8 = (gt>0.8).float()
+  neg_inds = gt.lt(1).float()
+
+  neg_weights = torch.pow(1 - gt, 4)
+  loss = 0
+  
+  pos_loss = w10*torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds
+  pos_loss8 = w8*torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds8
+  
+  neg_loss = torch.log(1 - pred) * torch.pow(pred, 2) * neg_weights * neg_inds
+
+  num_pos  = pos_inds.float().sum()
+  pos_loss = pos_loss.sum()
+  neg_loss = neg_loss.sum()
+  pos_loss8 = pos_loss8.sum()
+  if num_pos == 0:
+    loss = loss - neg_loss
+  else:
+    loss = loss - (pos_loss + neg_loss + pos_loss8) / num_pos
+  return loss
+
 
 def get_sem_loss(pred, target, w_class):
     criterion = torch.nn.CrossEntropyLoss(weight=w_class)

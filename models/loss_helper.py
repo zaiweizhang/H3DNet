@@ -112,7 +112,7 @@ def compute_vote_center_loss(end_points):
     vote_loss = torch.sum(votes_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
     return vote_loss
 
-def compute_voxel_loss(pred, target, w95, w8, w5):
+def compute_voxel_l2_loss(pred, target, w95, w8, w5):
     l2_loss = nn.MSELoss()(pred, target)
     
     mask = (target>0.9).float()
@@ -137,7 +137,37 @@ def compute_voxel_loss(pred, target, w95, w8, w5):
     mask = (target>0.3).float()
     loss = l2_loss
     return loss
-    
+
+def compute_voxel_loss(pred, gt, w10=1.0, w8=0.0):
+    ''' Modified focal loss. Exactly the same as CornerNet.
+        Runs faster and costs a little bit more memory
+      Arguments:
+        pred (batch x c x h x w)
+        gt_regr (batch x c x h x w)
+    '''
+    pos_inds = gt.eq(1).float()
+    pos_inds8 = (gt>0.8).float()
+    neg_inds = gt.lt(1).float()
+
+    neg_weights = torch.pow(1 - gt, 4)
+    loss = 0
+
+    pos_loss = w10*torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds
+    pos_loss8 = w8*torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds8
+
+    neg_loss = torch.log(1 - pred) * torch.pow(pred, 2) * neg_weights * neg_inds
+
+    num_pos  = pos_inds.float().sum()
+    pos_loss = pos_loss.sum()
+    neg_loss = neg_loss.sum()
+    pos_loss8 = pos_loss8.sum()
+    if num_pos == 0:
+      loss = loss - neg_loss
+    else:
+      loss = loss - (pos_loss + neg_loss + pos_loss8) / num_pos
+    return loss
+
+
 def compute_corner_plane_loss(end_points):
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'].shape[0]
@@ -514,12 +544,19 @@ def get_loss(end_points, config):
     """
     wcenter = 3
     wcorner = 2
-    w9_cen = 0
-    w8_cen = 300#250
-    w5_cen = 5
-    w9_cor = 100#60
+    wfocal = 2
+    wl2 = 1
+    w9_fcen = 25
+    w8_fcen = 25
+    w9_fcor = 25
+    w8_fcor = 25
+
+    w9_cen = 20
+    w8_cen = 250
+    w5_cen = 0
+    w9_cor = 60
     w8_cor = 250
-    w5_cor = 5
+    w5_cor = 0
     
     # Compute support vote loss
     if end_points['use_objcue']:
@@ -530,10 +567,14 @@ def get_loss(end_points, config):
         sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
         end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
-        voxel_center_loss = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
-        end_points['voxel_loss_center'] = voxel_center_loss
-        voxel_corner_loss = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
-        end_points['voxel_loss_corner'] = voxel_corner_loss
+        voxel_center_loss_focal = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_fcen, w8_fcen)
+        voxel_center_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
+        end_points['voxel_loss_center'] = wfocal*voxel_center_loss_focal + wl2*voxel_center_loss_l2
+
+        voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
+        voxel_corner_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
+        end_points['voxel_loss_corner'] = wfocal*voxel_corner_loss + wl2*voxel_corner_loss_l2
+
         end_points['voxel_loss'] = voxel_center_loss*wcenter + voxel_corner_loss*wcorner
         #end_points['vote_loss_support_center'] = support_center
         #end_points['vote_loss_bsupport_center'] = bsupport_center
