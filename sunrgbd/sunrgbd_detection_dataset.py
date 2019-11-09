@@ -110,7 +110,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
         plane_right = cues['plane_right']
         plane_front = cues['plane_front']
         plane_back = cues['plane_back']
-        plane_label = planes['params']
+        plane_label = cues['plane_label'][:,:4]
 
         ### Load voxel data
         sem_vox=np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.0625.npy'))
@@ -132,7 +132,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
         point_yz = -1
         point_xz = -1
         point_rot = np.eye(3).astype(np.float32)
-        if self.augment:
+        if False:#self.augment: ## Do not argment data for now
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_yz = 1
@@ -374,23 +374,17 @@ class SunrgbdDetectionVotesDataset(Dataset):
 
         ret_dict['plane_label'] = np.concatenate([point_cloud, plane_label], 1).astype(np.float32)
         ret_dict['plane_label_mask'] = plane_mask.astype(np.float32)
-        ret_dict['plane_votes_rot_front'] = plane_votes_rot_front.astype(np.float32)
-        ret_dict['plane_votes_off_front'] = plane_votes_off_front.astype(np.float32)
+        ret_dict['plane_votes_y'] = plane_votes_rot_front.astype(np.float32)
+        ret_dict['plane_votes_y0'] = plane_votes_off_front.astype(np.float32)
+        ret_dict['plane_votes_y1'] = plane_votes_off_back.astype(np.float32)
         
-        ret_dict['plane_votes_rot_back'] = plane_votes_rot_back.astype(np.float32)
-        ret_dict['plane_votes_off_back'] = plane_votes_off_back.astype(np.float32)
+        ret_dict['plane_votes_x'] = plane_votes_rot_left.astype(np.float32)
+        ret_dict['plane_votes_x0'] = plane_votes_off_left.astype(np.float32)
+        ret_dict['plane_votes_x1'] = plane_votes_off_right.astype(np.float32)
         
-        ret_dict['plane_votes_rot_left'] = plane_votes_rot_left.astype(np.float32)
-        ret_dict['plane_votes_off_left'] = plane_votes_off_left.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_right'] = plane_votes_rot_right.astype(np.float32)
-        ret_dict['plane_votes_off_right'] = plane_votes_off_right.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_lower'] = plane_votes_rot_lower.astype(np.float32)
-        ret_dict['plane_votes_off_lower'] = plane_votes_off_lower.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_upper'] = plane_votes_rot_upper.astype(np.float32)
-        ret_dict['plane_votes_off_upper'] = plane_votes_off_upper.astype(np.float32)
+        ret_dict['plane_votes_z'] = plane_votes_rot_lower.astype(np.float32)
+        ret_dict['plane_votes_z0'] = plane_votes_off_lower.astype(np.float32)
+        ret_dict['plane_votes_z1'] = plane_votes_off_upper.astype(np.float32)
 
         ret_dict['scan_name'] = scan_name
         ret_dict['num_instance'] = bboxes.shape[0]

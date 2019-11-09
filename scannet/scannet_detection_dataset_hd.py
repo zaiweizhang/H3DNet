@@ -30,6 +30,26 @@ DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 64
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
+LOWER_THRESH = 1e-6
+def check_upright(para_points):
+    return (para_points[0][-1] == para_points[1][-1]) and (para_points[1][-1] == para_points[2][-1]) and (para_points[2][-1] == para_points[3][-1])
+
+def check_z(plane_equ, para_points):
+    return np.sum(para_points[:,2] + plane_equ[-1]) / 4.0 < LOWER_THRESH
+
+def ang2cls(ang):
+    ang += np.pi / 2
+    cls = int(ang / (np.pi/12)) ### Split to 12 cls
+    res = (ang / (np.pi/12) - cls)
+    return cls,res
+
+def check_xy(plane_equ, para_points):
+    organg = (plane_equ[0]+plane_equ[1])*(np.pi/12) - np.pi/2
+    slope = np.tan(organg)
+    norm = np.linalg.norm([-slope, 1])*plane_equ[2]
+    orgplane = np.array([-slope/norm, 1/norm, 0, plane_equ[-1]])
+    return np.sum(np.sum(para_points*orgplane[:3], 1) + orgplane[3]) / 4.0 < LOWER_THRESH
+
 def f_min(X,p):
     plane_xyz = p[0:3]
     distance = (plane_xyz*X.T).sum(axis=1) + p[3]
@@ -163,6 +183,8 @@ class ScannetDetectionDataset(Dataset):
         scan_name = self.scan_names[idx]        
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         plane_vertices = np.load(os.path.join(self.data_path, scan_name)+'_plane.npy')
+        #plane_vertices[:,:4] = plane_vertices[:,:4] / np.linalg.norm(plane_vertices[:,:3], axis=1, keepdims=True) ## Normalize the data
+        #plane_vertices[:,:4] = np.nan_to_num(plane_vertices[:,:4])
         ### Without ori
         if self.use_angle:
             meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
@@ -258,15 +280,6 @@ class ScannetDetectionDataset(Dataset):
             plane_vertices[:,0:3] = np.transpose(np.dot(rot_mat, np.transpose(plane_vertices[:,0:3])))
             meta_vertices[:, :6] = rotate_aligned_boxes(meta_vertices[:, :6], rot_mat)
             meta_vertices[:, 6] += rot_angle
-        # load voxel data 
-        vox = pc_util.point_cloud_to_voxel_scene(point_cloud[:,0:3])
-        bbx_for_vox = np.unique(meta_vertices, axis=0)
-        bbx_for_vox_processed = pc_util.process_bbx(bbx_for_vox)
-        # vox_center = pc_util.center_to_volume_gaussion(bbx_for_vox_processed, dev=self.center_dev)
-        vox_center = pc_util.point_to_volume_gaussion(bbx_for_vox_processed[:, :3], dev=self.center_dev)
-        corner_vox = pc_util.get_corner(bbx_for_vox_processed) # without angle 
-        # corner_vox = pc_util.get_oriented_corners(bbx_for_vox) # with angle
-        vox_corner = pc_util.point_to_volume_gaussion(corner_vox, dev=self.corner_dev)
         
         # ------------------------------- Plane and point ------------------------------
         # compute votes *AFTER* augmentation
@@ -370,29 +383,62 @@ class ScannetDetectionDataset(Dataset):
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
                     #plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4]# / np.linalg.norm(plane_vertices[plane_ind[0],:], -1)
-                    plane_lower = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
-                    #plane_upper = leastsq(residuals, plane_lower, args=(None, np.array([corners[1], corners[3], corners[5], corners[7]]).T))[0]
+                    plane_lower_temp = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
+                    plane_lower_temp /= np.linalg.norm(plane_lower_temp[:3])
                     para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
-                    newd = np.sum(para_points * plane_lower[:3], 1)
-                    plane_upper = np.concatenate([plane_lower[:3], np.array([-np.mean(newd)])], 0)
-                    
-                    plane_left = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
-                    para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
-                    newd = np.sum(para_points * plane_left[:3], 1)
-                    plane_right = np.concatenate([plane_left[:3], np.array([-np.mean(newd)])], 0)
-                    #plane_right = leastsq(residuals, plane_left, args=(None, np.array([corners[4], corners[5], corners[6], corners[7]]).T))[0]
-                    plane_front = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
-                    para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
-                    newd = np.sum(para_points * plane_front[:3], 1)
-                    plane_back = np.concatenate([plane_front[:3], np.array([-np.mean(newd)])], 0)
-                    #plane_back = leastsq(residuals, plane_front, args=(None, np.array([corners[2], corners[3], corners[6], corners[7]]).T))[0]
+                    newd = np.sum(para_points * plane_lower_temp[:3], 1)
+                    if check_upright(para_points) and plane_lower_temp[0]+plane_lower_temp[1] < LOWER_THRESH:
+                        plane_lower = np.array([0,0,0,plane_lower_temp[-1]]) 
+                        plane_upper = np.array([0,0,0,-np.mean(newd)])
+                    else:
+                        import pdb;pdb.set_trace()
+                        print ("error with upright")
+                    if check_z(plane_upper, para_points) == False:
+                        import pdb;pdb.set_trace()
 
-                    plane_votes_upper[plane_ind,:] = plane_upper# / plane_upper[-1]
-                    plane_votes_lower[plane_ind,:] = plane_lower# / plane_lower[-1]
-                    plane_votes_front[plane_ind,:] = plane_front# / plane_front[-1]
-                    plane_votes_back[plane_ind,:] = plane_back# / plane_back[-1]
-                    plane_votes_left[plane_ind,:] = plane_left# / plane_left[-1]
-                    plane_votes_right[plane_ind,:] = plane_right# / plane_right[-1]
+                    plane_left_temp = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
+                    para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
+                    ### Normalize xy here
+                    plane_left_temp /= np.linalg.norm(plane_left_temp[:3])
+                    newd = np.sum(para_points * plane_left_temp[:3], 1)
+                    if plane_left_temp[2] < LOWER_THRESH:
+                        ang = np.arctan(-plane_left_temp[0]/plane_left_temp[1])
+                        cls, res = ang2cls(ang)
+                        tempsign = np.sign(plane_left_temp[1])
+                        if tempsign == 0:
+                            tempsign = 1
+                        plane_left = np.array([cls,res,tempsign,plane_left_temp[-1]]) 
+                        plane_right = np.array([cls,res,tempsign,-np.mean(newd)])
+                    else:
+                        import pdb;pdb.set_trace()
+                        print ("error with upright")
+                    if check_xy(plane_right, para_points) == False:
+                        import pdb;pdb.set_trace()
+
+                    plane_front_temp = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                    para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
+                    plane_front_temp /= np.linalg.norm(plane_front_temp[:3])
+                    newd = np.sum(para_points * plane_front_temp[:3], 1)
+                    if plane_front_temp[2] < LOWER_THRESH:
+                        ang = np.arctan(-plane_front_temp[0]/plane_front_temp[1])
+                        cls, res = ang2cls(ang)
+                        tempsign = np.sign(plane_front_temp[1])
+                        if tempsign == 0:
+                            tempsign = 1
+                        plane_front = np.array([cls,res,tempsign,plane_front_temp[-1]]) 
+                        plane_back = np.array([cls,res,tempsign,-np.mean(newd)])
+                    else:
+                        import pdb;pdb.set_trace()
+                        print ("error with upright")
+                    if (check_xy(plane_back, para_points) == False):
+                        import pdb;pdb.set_trace()
+
+                    plane_votes_upper[plane_ind,:] = np.concatenate([np.stack([plane_upper[:3]]*len(plane_ind), 0), np.array([plane_upper[-1] - plane_vertices[plane_ind,3]]).T], 1)
+                    plane_votes_lower[plane_ind,:] = np.concatenate([np.stack([plane_lower[:3]]*len(plane_ind), 0), np.array([plane_lower[-1] - plane_vertices[plane_ind,3]]).T], 1)
+                    plane_votes_front[plane_ind,:] = np.concatenate([np.stack([plane_front[:3]]*len(plane_ind), 0), np.array([plane_front[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_front# / plane_front[-1]
+                    plane_votes_back[plane_ind,:] = np.concatenate([np.stack([plane_back[:3]]*len(plane_ind), 0), np.array([plane_back[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_back# / plane_back[-1]
+                    plane_votes_left[plane_ind,:] = np.concatenate([np.stack([plane_left[:3]]*len(plane_ind), 0), np.array([plane_left[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_left# / plane_left[-1]
+                    plane_votes_right[plane_ind,:] = np.concatenate([np.stack([plane_right[:3]]*len(plane_ind), 0), np.array([plane_right[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_right# / plane_right[-1]
                     #import pdb;pdb.set_trace()
                     '''
                     xyz = np.array([corners[2], corners[3], corners[6], corners[7]])
@@ -487,23 +533,17 @@ class ScannetDetectionDataset(Dataset):
 
         ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices[:,:4]], 1).astype(np.float32)
         ret_dict['plane_label_mask'] = plane_label_mask.astype(np.float32)
-        ret_dict['plane_votes_rot_front'] = plane_votes_rot_front.astype(np.float32)
-        ret_dict['plane_votes_off_front'] = plane_votes_off_front.astype(np.float32)
+        ret_dict['plane_votes_y'] = plane_votes_rot_front.astype(np.float32)
+        ret_dict['plane_votes_y0'] = plane_votes_off_front.astype(np.float32)
+        ret_dict['plane_votes_y1'] = plane_votes_off_back.astype(np.float32)
         
-        ret_dict['plane_votes_rot_back'] = plane_votes_rot_back.astype(np.float32)
-        ret_dict['plane_votes_off_back'] = plane_votes_off_back.astype(np.float32)
+        ret_dict['plane_votes_x'] = plane_votes_rot_left.astype(np.float32)
+        ret_dict['plane_votes_x0'] = plane_votes_off_left.astype(np.float32)
+        ret_dict['plane_votes_x1'] = plane_votes_off_right.astype(np.float32)
         
-        ret_dict['plane_votes_rot_left'] = plane_votes_rot_left.astype(np.float32)
-        ret_dict['plane_votes_off_left'] = plane_votes_off_left.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_right'] = plane_votes_rot_right.astype(np.float32)
-        ret_dict['plane_votes_off_right'] = plane_votes_off_right.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_lower'] = plane_votes_rot_lower.astype(np.float32)
-        ret_dict['plane_votes_off_lower'] = plane_votes_off_lower.astype(np.float32)
-        
-        ret_dict['plane_votes_rot_upper'] = plane_votes_rot_upper.astype(np.float32)
-        ret_dict['plane_votes_off_upper'] = plane_votes_off_upper.astype(np.float32)
+        ret_dict['plane_votes_z'] = plane_votes_rot_lower.astype(np.float32)
+        ret_dict['plane_votes_z0'] = plane_votes_off_lower.astype(np.float32)
+        ret_dict['plane_votes_z1'] = plane_votes_off_upper.astype(np.float32)
         
         ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
         ret_dict['pcl_color'] = pcl_color
@@ -626,8 +666,10 @@ if __name__=='__main__':
     dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=True)
     for i_example in range(1513):
         example = dset.__getitem__(i_example)
+        print (i_example)
+        continue
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
-        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'], 'pc_sem_{}.ply'.format(str(i_example)),  19)
+        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,1], 'pc_sem_{}.ply'.format(str(i_example)),  18)
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
         viz_votes(example['point_clouds'], example['vote_label_corner'],
@@ -642,7 +684,6 @@ if __name__=='__main__':
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_middle'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_middle')
         #viz_votes(example['point_clouds'], example['vote_label_support_offset'],example['vote_label_mask_support'],name=str(i_example)+'support_offset')
         #viz_votes(example['point_clouds'], example['vote_label_bsupport_offset'],example['vote_label_mask_bsupport'],name=str(i_example)+'bsupport_offset')
-        import pdb;pdb.set_trace()
 
         """
         viz_obb(pc=example['point_clouds'], label=example['center_label'],
