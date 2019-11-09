@@ -651,11 +651,17 @@ def get_loss(end_points, config):
         sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
         end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
-        voxel_center_loss_focal = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_fcen, w8_fcen)
+        if end_points['sunrgbd']:
+            voxel_center_loss_focal = 0
+        else:
+            voxel_center_loss_focal = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_fcen, w8_fcen)
         voxel_center_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
         end_points['voxel_loss_center'] = wfocal*voxel_center_loss_focal + wl2*voxel_center_loss_l2
 
-        voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
+        if end_points['sunrgbd']:
+            voxel_corner_loss_focal = 0
+        else:
+            voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
         voxel_corner_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
         end_points['voxel_loss_corner'] = wfocal*voxel_corner_loss_focal + wl2*voxel_corner_loss_l2
 
@@ -710,7 +716,7 @@ def get_loss(end_points, config):
         loss_plane *= 10
         end_points['loss_plane'] = loss_plane
         
-        loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 50*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
+        loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 0.1*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
         return loss, end_points
 

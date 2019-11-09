@@ -33,7 +33,7 @@ class VotingPlaneModule(nn.Module):
         self.conv_upper1 = torch.nn.Conv1d(self.in_dim + 3 + 4, self.in_dim, 1)
         self.conv_upper2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         #self.conv_upper3 = torch.nn.Conv1d(self.in_dim, (self.out_dim) * self.vote_factor, 1)
-        self.conv_upper3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
+        self.conv_upper3_angle = torch.nn.Conv1d(self.in_dim, 13, 1) ### 13 Class
         self.conv_upper3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
         self.conv_upper3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_upper3_off = torch.nn.Conv1d(self.in_dim, 2, 1) ### Vote for 2 offset
@@ -44,7 +44,7 @@ class VotingPlaneModule(nn.Module):
 
         self.conv_front1 = torch.nn.Conv1d(self.in_dim+3+4, self.in_dim, 1)
         self.conv_front2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
-        self.conv_front3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
+        self.conv_front3_angle = torch.nn.Conv1d(self.in_dim, 13, 1) ### 13 Class
         self.conv_front3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
         self.conv_front3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_front3_off = torch.nn.Conv1d(self.in_dim, 2, 1)
@@ -55,7 +55,7 @@ class VotingPlaneModule(nn.Module):
 
         self.conv_left1 = torch.nn.Conv1d(self.in_dim+3+4, self.in_dim, 1)
         self.conv_left2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
-        self.conv_left3_angle = torch.nn.Conv1d(self.in_dim, 12, 1) ### 12 Class
+        self.conv_left3_angle = torch.nn.Conv1d(self.in_dim, 13, 1) ### 13 Class
         self.conv_left3_res = torch.nn.Conv1d(self.in_dim, 1, 1)
         self.conv_left3_sign = torch.nn.Conv1d(self.in_dim, 1, 1) ### Binary class
         self.conv_left3_off = torch.nn.Conv1d(self.in_dim, 2, 1)

@@ -217,7 +217,6 @@ class HDNet(nn.Module):
         #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
         #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature
         #features_combine_sem_plane = torch.cat((features_sem, plane_feature), 1)#plane_feature
-
         features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
         net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_for_sem))))
         net_sem = self.conv_sem2(net_sem)

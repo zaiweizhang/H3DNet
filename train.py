@@ -368,7 +368,8 @@ def evaluate_one_epoch():
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
-            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
+            pass
+            #dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
         loss, end_points = criterion(end_points, DATASET_CONFIG)
 
         # Accumulate statistics and print out
@@ -405,12 +406,12 @@ def evaluate_one_epoch():
             ### For angle plane
             sem_idx = np.where(end_points['sem_mask_plane'][i,...].detach().cpu().numpy() > 0)[0]
             for cls in ['x', 'y', 'z']:
-                gt_angle = (end_points[cls+'_gt'][i,...].detach().cpu().numpy())[sem_idx,:]
+                gt_sem = (end_points[cls+'_gt'][i,...].detach().cpu().numpy())[sem_idx,:]
                 pre_sem = (end_points[cls+'_angle'][i,...].detach().cpu().numpy().T)[sem_idx]
                 pre_sem = np.argmax(pre_sem, 1)
 
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
-                total_cls_angle_plane[cls] += len(gt_angle)
+                total_cls_angle_plane[cls] += len(gt_sem)
             
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
