@@ -518,8 +518,9 @@ class TwoStreamNetDecoder(nn.Module):
         # print('up4' ,x.shape)
         x = self.up_layer42(x)
         pred2 = self.pred_layer2(x)
-        pred1 = torch.nn.Sigmoid()(pred1)
-        pred2 = torch.nn.Sigmoid()(pred2)
+        if end_points['sunrgbd'] == False:
+            pred1 = torch.nn.Sigmoid()(pred1)
+            pred2 = torch.nn.Sigmoid()(pred2)
         end_points['vox_pred1'] = pred1
         end_points['vox_pred2'] = pred2
         return end_points
