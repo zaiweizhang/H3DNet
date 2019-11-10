@@ -177,7 +177,7 @@ def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.8
     potential += field[high[0], low[1]]*f[0]*(1-f[1])
     return potential
    
- def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
+def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
     '''
     Mainly for center and corner. 
     '''
