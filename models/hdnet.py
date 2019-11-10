@@ -299,7 +299,25 @@ class OBJNet(nn.Module):
 
         ###
         gt_bbox = torch.squeeze(inputs['gt_bboxes'])
-        center, corner, plane = cue_to_voxfield.get_oriented_cues_batch_torch(gt_bbox, end_points, batch_data_label)
+        center, corner, planex0, planex1, planey0, planey1, planez0, planez1 = cue_to_voxfield.get_oriented_cues_batch_torch(gt_bbox, end_points, batch_data_label)
+        print (np.unique(batch_data_label['plane_votes_z0'].cpu().numpy()))
+        print (np.unique(planez0[:].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_z1'].cpu().numpy()))
+        print (np.unique(planez1[:].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_x'].cpu().numpy()))
+        print (np.unique(planex0[:,0].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_x0'].cpu().numpy()))
+        print (np.unique(planex0[:,1].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_x1'].cpu().numpy()))
+        print (np.unique(planex1[:,1].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_y'].cpu().numpy()))
+        print (np.unique(planey0[:,0].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_y0'].cpu().numpy()))
+        print (np.unique(planey0[:,1].cpu().numpy()))
+        print (np.unique(batch_data_label['plane_votes_y1'].cpu().numpy()))
+        print (np.unique(planey1[:,1].cpu().numpy()))
+
+        import pdb;pdb.set_trace()
         #center_vox = pc_util.trilinear_interpolation(voted_xyz)
         #import pdb;pdb.set_trace()
 

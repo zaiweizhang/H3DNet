@@ -384,8 +384,9 @@ class ScannetDetectionDataset(Dataset):
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
                     #plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4]# / np.linalg.norm(plane_vertices[plane_ind[0],:], -1)
-                    plane_lower_temp = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
-                    plane_lower_temp /= np.linalg.norm(plane_lower_temp[:3])
+                    #plane_lower_temp = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
+                    #plane_lower_temp /= np.linalg.norm(plane_lower_temp[:3])
+                    plane_lower_temp = np.array([0,0,1,-corners[6,-1]])
                     para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
                     newd = np.sum(para_points * plane_lower_temp[:3], 1)
                     if check_upright(para_points) and plane_lower_temp[0]+plane_lower_temp[1] < LOWER_THRESH:
@@ -397,7 +398,13 @@ class ScannetDetectionDataset(Dataset):
                     if check_z(plane_upper, para_points) == False:
                         import pdb;pdb.set_trace()
 
-                    plane_left_temp = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
+                    #plane_left_temp = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
+                    v1 = corners[3] - corners[2]
+                    v2 = corners[2] - corners[0]
+                    cp = np.cross(v1, v2)
+                    d = -np.dot(cp,corners[0])
+                    a,b,c = cp
+                    plane_left_temp = np.array([a, b, c, d])
                     para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
                     ### Normalize xy here
                     plane_left_temp /= np.linalg.norm(plane_left_temp[:3])
@@ -416,7 +423,13 @@ class ScannetDetectionDataset(Dataset):
                     if check_xy(plane_right, para_points) == False:
                         import pdb;pdb.set_trace()
 
-                    plane_front_temp = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                    #plane_front_temp = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                    v1 = corners[0] - corners[4]
+                    v2 = corners[4] - corners[5]
+                    cp = np.cross(v1, v2)
+                    d = -np.dot(cp,corners[5])
+                    a,b,c = cp
+                    plane_front_temp = np.array([a, b, c, d])
                     para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
                     plane_front_temp /= np.linalg.norm(plane_front_temp[:3])
                     newd = np.sum(para_points * plane_front_temp[:3], 1)
