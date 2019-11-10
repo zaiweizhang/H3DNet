@@ -26,7 +26,7 @@ def trilinear_interpolation(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xm
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
     vz = int((zmax-zmin)/vs_z)
-    vox = torch.zeros((vx,vy,vz)).float()
+    vox = torch.zeros((vx,vy,vz)).float().cuda()
   
     low = points.int()
     high = low+1
@@ -51,7 +51,7 @@ def trilinear_interpolation(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xm
     vox[high[:,0], high[:,1], high[:,2]]+=f[:,0]*f[:,1]*f[:,2]
     return vox
 
-def bilinear_interpolation(points, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84):
+def bilinear_interpolation(points, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84):
     '''
     Mainly for plane (d and theta).
     d: the same range of x or y
@@ -64,7 +64,7 @@ def bilinear_interpolation(points, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymi
 
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
-    vox=torch.zeros((vx,vy)).float()
+    vox=torch.zeros((vx,vy)).float().cuda()
   
     low = points.int().float()
     high = low+1
@@ -80,7 +80,7 @@ def bilinear_interpolation(points, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymi
     vox[low[:,0], high[:,1]]+=(1-f[:,0])*f[:,1]
     vox[high[:,0], low[:,1]]+=f[:,0]*(1-f[:,1])
     vox[high[:,0], low[:,1]]+=f[:,0]*(1-f[:,1])
-    return vox    
+    return vox
 
 def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     '''
@@ -92,7 +92,7 @@ def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     points = (points-xmin)/vs_x
 
     vx = int((xmax-xmin)/vs_x)
-    vox=torch.zeros(vx).float()
+    vox=torch.zeros(vx).float().cuda()
   
     low = points.int().float()
     high = low+1
@@ -102,8 +102,8 @@ def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     f=points-low
     low=low.long()
     high = high.long()
-    vox[low[:], low[:]]+=(1-f[:])
-    vox[high[:], low[:]]+=f[:]
+    vox[low]+=(1-f[:])
+    vox[high]+=f[:]
     return vox
    
 
@@ -197,8 +197,73 @@ def get_oriented_corners_torch(bbx):
     corners[5] = center - vx + vy - vz
     corners[6] = center + vx - vy - vz
     corners[7] = center - vx - vy - vz
+    
     return corners
-   
+
+def get_oriented_cues_torch(bbx):
+    center = bbx[0:3]
+    xsize = bbx[3]
+    ysize = bbx[4]
+    zsize = bbx[5]
+    angle = bbx[6]
+    vx = torch.tensor([np.cos(angle), np.sin(angle), 0])
+    vy = torch.tensor([-np.sin(angle), np.cos(angle), 0])
+    vx = vx * torch.abs(xsize) / 2
+    vy = vy * torch.abs(ysize) / 2
+    vz = torch.tensor([0, 0, torch.abs(zsize) / 2])
+    corners = torch.zeros((8,3))
+    corners[0] = center + vx + vy + vz
+    corners[1] = center - vx + vy + vz
+    corners[2] = center + vx - vy + vz
+    corners[3] = center - vx - vy + vz
+    corners[4] = center + vx + vy - vz
+    corners[5] = center - vx + vy - vz
+    corners[6] = center + vx - vy - vz
+    corners[7] = center - vx - vy - vz
+
+    return center, corners
+
+def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
+    center = bbx[:,0:3]
+    xsize = bbx[:,3]
+    ysize = bbx[:,4]
+    zsize = bbx[:,5]
+    angle = bbx[:,6]
+    vx = torch.stack([torch.cos(angle), torch.sin(angle), torch.zeros(angle.shape).cuda()], 1)
+    vy = torch.stack([-torch.sin(angle), torch.cos(angle), torch.zeros(angle.shape).cuda()], 1)
+    vx = vx * torch.abs(xsize).unsqueeze(-1) / 2
+    vy = vy * torch.abs(ysize).unsqueeze(-1) / 2
+    vz = torch.stack([torch.zeros(zsize.shape).cuda(), torch.zeros(zsize.shape).cuda(), torch.abs(zsize) / 2],1)
+    corners = torch.zeros((bbx.shape[0],8,3)).cuda()
+    corners[:,0] += center + vx + vy + vz
+    corners[:,1] += center - vx + vy + vz
+    corners[:,2] += center + vx - vy + vz
+    corners[:,3] += center - vx - vy + vz
+    corners[:,4] += center + vx + vy - vz
+    corners[:,5] += center - vx + vy - vz
+    corners[:,6] += center + vx - vy - vz
+    corners[:,7] += center - vx - vy - vz
+
+    import pdb;pdb.set_trace()
+    planez0 = torch.zeros((bbx.shape[0],1)).cuda()
+    planez0[:,0] += -(corners[:,4,-1])
+    
+    planez1 = torch.zeros((bbx.shape[0],1)).cuda()
+    planez1[:,0] += -(corners[:,0,-1])
+
+    xcls = (torch.atan((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) + np.pi / 2) / (np.pi/12)
+    planex0 = torch.zeros((bbx.shape[0],1)).cuda()
+    planex0[:,0] += xcls
+    planex0[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16) * corners[:,5,0] - corners[:,7,1]).unsqueeze(1)
+    planex1 = torch.zeros((bbx.shape[0],1)).cuda()
+    planex1[:,0] += xcls
+    planex1[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16) * corners[:,4,0] - corners[:,6,1]).unsqueeze(1)
+    import pdb;pdb.set_trace()
+
+    
+    
+    return center, corners
+
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
   x,y,z=x.float(), y.float(), z.float()
