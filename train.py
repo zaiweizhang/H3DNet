@@ -365,6 +365,7 @@ def evaluate_one_epoch():
             print('Eval batch: %d'%(batch_idx))
         end_points = {}
         for key in batch_data_label:
+            batch_data_label[key] = batch_data_label[key].to(device)
             if 'aug' in key:
                 end_points[key] = batch_data_label[key].to(device)
 
@@ -438,12 +439,13 @@ def evaluate_one_epoch():
         #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
+        '''
         if FLAGS.dump_results and batch_idx == 0:# and EPOCH_CNT %10 == 0:
             if FLAGS.use_plane:
                 dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
             else:
                 dump_results(end_points, DUMP_DIR, DATASET_CONFIG)
-
+        '''
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
@@ -483,7 +485,7 @@ def train(start_epoch):
         # Reset numpy seed.
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
-        train_one_epoch()
+        #train_one_epoch()
         if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
