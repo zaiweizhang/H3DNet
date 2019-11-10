@@ -80,8 +80,7 @@ def bilinear_interpolation(points, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymi
     vox[low[:,0], high[:,1]]+=(1-f[:,0])*f[:,1]
     vox[high[:,0], low[:,1]]+=f[:,0]*(1-f[:,1])
     vox[high[:,0], low[:,1]]+=f[:,0]*(1-f[:,1])
-    return vox
-    
+    return vox    
 
 def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     '''
@@ -127,7 +126,7 @@ def get_3d_field(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5
     points[:,0] = (points[:,0]-xmin)/vs_x
     points[:,1] = (points[:,1]-ymin)/vs_y
     points[:,2] = (points[:,2]-zmin)/vs_z
-    
+
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
     vz = int((zmax-zmin)/vs_z)
@@ -135,11 +134,11 @@ def get_3d_field(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
     points[:,2] = torch.clamp(points[:,2], 0, vz-1)
     
-    vox = torch.zeros((vx,vy,vz)).float()
+    vox = torch.zeros((vx,vy,vz)).float().cuda()
     k2 = int((ksize - 1)/2)
     gauss = gaussian_3d_torch(k2, k2, k2, ksize, dev=dev)
     locations = points.int()
-    m = torch.ones(points.shape[0]).int()
+    m = torch.ones(points.shape[0]).int().cuda()
     xmin = torch.max(m*0, locations[:, 0] - k2)
     xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
     ymin = torch.max(m*0, locations[:, 1] - k2)
@@ -164,11 +163,11 @@ def get_2d_field(points, vs_x=0.1, vs_y=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=
     vy = int((ymax-ymin)/vs_y)
     points[:,0] = torch.clamp(points[:,0], 0, vx-1)
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
-    vox = torch.zeros((vx,vy)).float()
+    vox = torch.zeros((vx,vy)).float().cuda()
     k2 = int((ksize - 1)/2)
     gauss = gaussian_2d_torch(k2, k2, ksize, dev=dev)
     locations = points.int()
-    m = torch.ones(points.shape[0]).int()
+    m = torch.ones(points.shape[0]).int().cuda()
     xmin = torch.max(m*0, locations[:, 0] - k2)
     xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
     ymin = torch.max(m*0, locations[:, 1] - k2)
@@ -185,11 +184,11 @@ def get_1d_field(points, vs_x=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=5.0):
     points= (points-xmin)/vs_x
     vx = int((xmax-xmin)/vs_x)
     points = torch.clamp(points, 0, vx-1)
-    vox = torch.zeros(vx).float()
+    vox = torch.zeros(vx).float().cuda()
     k2 = int((ksize - 1)/2)
     gauss = gaussian_1d_torch(k2, ksize, dev=dev)
     locations = points.int()
-    m = torch.ones(points.shape[0]).int()
+    m = torch.ones(points.shape[0]).int().cuda()
     xmin = torch.max(m*0, locations-k2)
     xmax = torch.min(m*(vx - 1), locations + k2)
     for i in range(points.shape[0]):
