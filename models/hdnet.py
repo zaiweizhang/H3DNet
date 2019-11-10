@@ -19,6 +19,7 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import pc_util
+import cue_to_voxfield
 
 from backbone_module import Pointnet2Backbone, Pointnet2BackbonePlane
 from backbone_module_pairwise import Pointnet2BackbonePairwise
@@ -115,8 +116,8 @@ class HDNet(nn.Module):
         self.vgen_voxel = TwoStreamNetDecoder()
 
         # Vote aggregation and detection
-        self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-            mean_size_arr, num_proposal, sampling)
+        #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+        #    mean_size_arr, num_proposal, sampling)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -156,7 +157,7 @@ class HDNet(nn.Module):
         newxyz = torch.matmul(xyz, end_points['aug_rot'].float())
         newxyz = torch.stack(((newxyz[:,:,0])*(-1*end_points['aug_yz'].unsqueeze(-1).float()), (newxyz[:,:,1])*(-1*end_points['aug_xz'].unsqueeze(-1).float()), newxyz[:,:,2]), 2)
 
-        if end_points['sunrgbd']:
+        if inputs['sunrgbd']:
             features_vox = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature'], newxyz)
         else:
             features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], newxyz)
@@ -176,7 +177,7 @@ class HDNet(nn.Module):
         #features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
         features_combine_plane = torch.cat((features, features_plane, features_vox), 1)
         allfeat = torch.cat((newxyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
-        if end_points['sunrgbd']:
+        if inputs['sunrgbd']:
             features_other_vox = pc_util.pt_to_voxel_feature_batch_sunrgbd(allfeat)
         else:
             features_other_vox = pc_util.pt_to_voxel_feature_batch(allfeat)
@@ -201,7 +202,7 @@ class HDNet(nn.Module):
         end_points['vote_xyz_center'] = voted_xyz
         end_points['vote_xyz_corner'] = voted_xyz_corner
 
-        end_points = self.vgen_voxel(features_combine_vox, end_points)
+        end_points = self.vgen_voxel(features_combine_vox, end_points, inputs)
         
         seed_plane = torch.gather(inputs['plane_label'][:,:,4:], 1, end_points['seed_inds'].long().unsqueeze(-1).repeat(1,1,4))
 
@@ -232,7 +233,7 @@ class HDNet(nn.Module):
 
         end_points["pred_sem_class"] = torch.stack((torch.argmax(end_points["pred_sem_class1"], 1), torch.argmax(end_points["pred_sem_class2"], 1), torch.argmax(end_points["pred_sem_class3"], 1)), 1)
         end_points["pred_sem_class_top3"] = torch.stack((torch.topk(end_points["pred_sem_class1"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class2"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class3"], 3, dim=1)[0]), 1)
-        end_points = self.pnet(proposal_xyz, proposal_features, end_points)
+        
         """
         if end_points['use_support']:
             end_points = self.pnet(xyz_support, features_support, end_points, mode='_support')
@@ -243,6 +244,64 @@ class HDNet(nn.Module):
         #import pdb;pdb.set_trace()
         return end_points
 
+class OBJNet(nn.Module):
+    r"""
+        A deep neural network for 3D object detection with end-to-end optimizable hough voting.
+
+        Parameters
+        ----------
+        num_class: int
+            Number of semantics classes to predict over -- size of softmax classifier
+        num_heading_bin: int
+        num_size_cluster: int
+        input_feature_dim: (default: 0)
+            Input dim in the feature descriptor for each point.  If the point cloud is Nx9, this
+            value should be 6 as in an Nx9 point cloud, 3 of the channels are xyz, and 6 are feature descriptors
+        num_proposal: int (default: 128)
+            Number of proposals/detections generated from the network. Each proposal is a 3D OBB with a semantic class.
+        vote_factor: (default: 1)
+            Number of votes generated from each seed point.
+    """
+
+    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr,
+        input_feature_dim=0, num_proposal=128, vote_factor=1, sampling='vote_fps'):
+        super().__init__()
+
+    def forward(self, inputs, end_points, batch_data_label, mode=""):
+        ### 3D Field
+        center_cue = torch.squeeze(end_points["vote_xyz_center"])
+        #center_cue_field = cue_to_voxfield.get_3d_field(center_cue)
+        center_cue_field = cue_to_voxfield.trilinear_interpolation(center_cue,vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        corner_cue = torch.squeeze(end_points["vote_xyz_corner"])
+        corner_cue_field = cue_to_voxfield.trilinear_interpolation(corner_cue,vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        vox_center_cue = end_points["vox_pred1"]
+        vox_center_cue_field = torch.squeeze(vox_center_cue)
+        #vox_center_cue_field = torch.squeeze(torch.nn.functional.interpolate(vox_center_cue, scale_factor=(0.6,0.6,0.6), mode='trilinear'))
+        vox_corner_cue = end_points["vox_pred2"]
+        #vox_corner_cue_field = torch.squeeze(torch.nn.functional.interpolate(vox_corner_cue, scale_factor=(0.6,0.6,0.6), mode='trilinear'))
+        vox_corner_cue_field = torch.squeeze(vox_corner_cue)
+
+        ### 1D Field
+        plane_z0_cue = torch.squeeze(end_points['z_off0'])
+        plane_z0_cue_field = cue_to_voxfield.linear_interpolation(plane_z0_cue, vs_x=0.1,xmin=-3.84, xmax=3.84)
+        plane_z1_cue = end_points['z_off1']
+        plane_z1_cue_field = cue_to_voxfield.linear_interpolation(plane_z1_cue, vs_x=0.1,xmin=-3.84, xmax=3.84)
+
+        ### 2D Field
+        plane_x0_cue = torch.stack([torch.squeeze(torch.argmax(end_points['x_angle'], 1)).float() + torch.squeeze(end_points['x_res']), torch.squeeze(end_points['x_off0'])], 1)
+        plane_x0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x0_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_x1_cue = torch.stack([torch.squeeze(torch.argmax(end_points['x_angle'], 1)).float() + torch.squeeze(end_points['x_res']), torch.squeeze(end_points['x_off1'])], 1)
+        plane_x1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x1_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_y0_cue = torch.stack([torch.squeeze(torch.argmax(end_points['y_angle'], 1)).float() + torch.squeeze(end_points['y_res']), torch.squeeze(end_points['y_off0'])], 1)
+        plane_y0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y0_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_y1_cue = torch.stack([torch.squeeze(torch.argmax(end_points['y_angle'], 1)).float() + torch.squeeze(end_points['y_res']), torch.squeeze(end_points['y_off1'])], 1)
+        plane_y1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y1_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+
+        ###
+        gt_bbox = torch.squeeze(inputs['gt_bboxes'])
+        center, corner, plane = cue_to_voxfield.get_oriented_cues_batch_torch(gt_bbox, end_points, batch_data_label)
+        #center_vox = pc_util.trilinear_interpolation(voted_xyz)
+        #import pdb;pdb.set_trace()
 
 if __name__=='__main__':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))

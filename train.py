@@ -64,6 +64,7 @@ parser.add_argument('--no_height', action='store_true', help='Do NOT use height 
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
 parser.add_argument('--use_angle', action='store_true', help='Use angle for input in scannet.')
 parser.add_argument('--use_objcue', action='store_true', help='Use support relation in input.')
+parser.add_argument('--opt_proposal', action='store_true', help='Use support relation in input.')
 parser.add_argument('--use_plane', action='store_true', help='Use support relation in input.')
 parser.add_argument('--get_data', action='store_true', help='Use support relation in input.')
 parser.add_argument('--use_sunrgbd_v2', action='store_true', help='Use V2 box labels for SUN RGB-D dataset')
@@ -122,7 +123,7 @@ if FLAGS.dataset == 'sunrgbd':
     from model_util_sunrgbd import SunrgbdDatasetConfig
     DATASET_CONFIG = SunrgbdDatasetConfig()
     TRAIN_DATASET = SunrgbdDetectionVotesDataset('train', num_points=NUM_POINT,
-        augment=not FLAGS.get_data,
+        augment=False,
         use_color=FLAGS.use_color, use_height=(not FLAGS.no_height),
         use_v1=(not FLAGS.use_sunrgbd_v2))
     TEST_DATASET = SunrgbdDetectionVotesDataset('val', num_points=NUM_POINT,
@@ -146,7 +147,7 @@ elif FLAGS.dataset == 'scannet_hd':
     from model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-                                            augment=not FLAGS.get_data, use_angle=FLAGS.use_angle,
+                                            augment=False, use_angle=FLAGS.use_angle,
                                             use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
                                            augment=False, use_angle=FLAGS.use_angle,
@@ -173,6 +174,8 @@ elif FLAGS.model == 'planenet':
     num_input_channel += 4
 elif FLAGS.model == 'hdnet':
     Detector = MODEL.HDNet
+    if FLAGS.opt_proposal:
+        Obj_opt = MODEL.OBJNet
     num_input_channel += 4
 else:
     Detector = MODEL.VoteNet
@@ -185,6 +188,16 @@ net = Detector(num_class=DATASET_CONFIG.num_class,
                input_feature_dim=num_input_channel,
                vote_factor=FLAGS.vote_factor,
                sampling=FLAGS.cluster_sampling)
+
+if FLAGS.opt_proposal:
+   net_obj = Obj_opt(num_class=DATASET_CONFIG.num_class,
+                  num_heading_bin=DATASET_CONFIG.num_heading_bin,
+                  num_size_cluster=DATASET_CONFIG.num_size_cluster,
+                  mean_size_arr=DATASET_CONFIG.mean_size_arr,
+                  num_proposal=FLAGS.num_target,
+                  input_feature_dim=num_input_channel,
+                  vote_factor=FLAGS.vote_factor,
+                  sampling=FLAGS.cluster_sampling)
 
 if torch.cuda.device_count() > 1:
   log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
@@ -247,31 +260,39 @@ def train_one_epoch():
         bnm_scheduler.step() # decay BN momentum
         net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
-        for i in range(len(batch_data_label['num_instance'])):
-            if batch_data_label['num_instance'][i] == 0:
-                print (batch_data_label['scan_name'][i])
+        #for i in range(len(batch_data_label['num_instance'])):
+        #    if batch_data_label['num_instance'][i] == 0:
+        #        print (batch_data_label['scan_name'][i])
         end_points = {}
-        if FLAGS.dataset == 'sunrgbd':
-            end_points['sunrgbd'] = True
-        else:
-            end_points['sunrgbd'] = False
         for key in batch_data_label:
-            if 'name' not in key:
-                batch_data_label[key] = batch_data_label[key].to(device)
+            #if 'name' not in key:
+            batch_data_label[key] = batch_data_label[key].to(device)
             if 'aug' in key:
                 end_points[key] = batch_data_label[key].to(device)
                 
         # Forward pass
         optimizer.zero_grad()
-        inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
-        end_points['use_objcue'] = FLAGS.use_objcue
-        end_points['use_plane'] = FLAGS.use_plane
+        if FLAGS.dataset == 'sunrgbd':
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True}
+        else:
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False}
+        if FLAGS.opt_proposal:
+            inputs['opt_proposal'] = True
+        else:
+            inputs['opt_proposal'] = False
+        if FLAGS.opt_proposal:
+            inputs['gt_bboxes'] = batch_data_label['gt_bbox']
+            ### Also need to get the initial proposal
         if FLAGS.get_data == True:
             with torch.no_grad():
                 end_points = net(inputs, end_points)
         else:
             end_points = net(inputs, end_points)
 
+        ### Train the obj proposal
+        if FLAGS.opt_proposal:
+            end_points = net_obj(inputs, end_points, batch_data_label)
+            
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             if "aug" in key:
@@ -281,7 +302,7 @@ def train_one_epoch():
         if FLAGS.get_data == True:
             #optimize_proposal(inputs, end_points)
             dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
-        loss, end_points = criterion(end_points, DATASET_CONFIG)
+        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
         if FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
@@ -337,28 +358,28 @@ def evaluate_one_epoch():
         total_cls_angle_plane[cls] = 0
         
     for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
-        for i in range(len(batch_data_label['num_instance'])):
-            if batch_data_label['num_instance'][i] == 0:
-                print (batch_data_label['scan_name'][i])
+        #for i in range(len(batch_data_label['num_instance'])):
+        #    if batch_data_label['num_instance'][i] == 0:
+        #        print (batch_data_label['scan_name'][i])
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
         end_points = {}
-        if FLAGS.dataset == 'sunrgbd':
-            end_points['sunrgbd'] = True
-        else:
-            end_points['sunrgbd'] = False
         for key in batch_data_label:
-            if 'name' not in key:
-                batch_data_label[key] = batch_data_label[key].to(device)
             if 'aug' in key:
                 end_points[key] = batch_data_label[key].to(device)
 
         # Forward pass
         inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
+        if FLAGS.dataset == 'sunrgbd':
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True}
+        else:
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False}
+        if FLAGS.opt_proposal:
+            inputs['opt_proposal'] = True
+        else:
+            inputs['opt_proposal'] = False
         #inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label']}
         with torch.no_grad():
-            end_points['use_objcue'] = FLAGS.use_objcue
-            end_points['use_plane'] = FLAGS.use_plane
             end_points = net(inputs, end_points)
 
         # Compute loss
@@ -368,9 +389,8 @@ def evaluate_one_epoch():
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
-            pass
-            #dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
-        loss, end_points = criterion(end_points, DATASET_CONFIG)
+            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
+        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
 
         # Accumulate statistics and print out
         for key in end_points:
@@ -413,9 +433,9 @@ def evaluate_one_epoch():
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
                 total_cls_angle_plane[cls] += len(gt_sem)
             
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         if FLAGS.dump_results and batch_idx == 0:# and EPOCH_CNT %10 == 0:

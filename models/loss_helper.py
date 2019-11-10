@@ -586,7 +586,7 @@ def compute_sem_cls_loss(end_points):
     sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask_plane.view(-1).float())/(torch.sum(seed_gt_votes_mask_plane.view(-1).float())+1e-6)
     return sem_cls_loss1+sem_cls_loss2+sem_cls_loss3
     
-def get_loss(end_points, config):
+def get_loss(inputs, end_points, config):
     """ Loss functions
 
     Args:
@@ -609,7 +609,7 @@ def get_loss(end_points, config):
         loss: pytorch scalar tensor
         end_points: dict
     """
-    if end_points['sunrgbd']:
+    if inputs['sunrgbd']:
         wcenter = 1
         wcorner = 1
         wfocal = 0
@@ -643,7 +643,7 @@ def get_loss(end_points, config):
         w5_cor = 0
     
     # Compute support vote loss
-    if end_points['use_objcue']:
+    if True:#end_points['use_objcue']:
         vote_loss_center = compute_vote_center_loss(end_points)*10
         end_points['vote_loss_center'] = vote_loss_center
         vote_loss_corner = compute_objcue_vote_loss(end_points)*10
@@ -651,14 +651,14 @@ def get_loss(end_points, config):
         sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
         end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
-        if end_points['sunrgbd']:
+        if inputs['sunrgbd']:
             voxel_center_loss_focal = 0
         else:
             voxel_center_loss_focal = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_fcen, w8_fcen)
         voxel_center_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
         end_points['voxel_loss_center'] = wfocal*voxel_center_loss_focal + wl2*voxel_center_loss_l2
 
-        if end_points['sunrgbd']:
+        if inputs['sunrgbd']:
             voxel_corner_loss_focal = 0
         else:
             voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
@@ -677,7 +677,7 @@ def get_loss(end_points, config):
         #end_points['vote_loss_support_offset'] = torch.tensor(0)
         #end_points['vote_loss_bsupport_offset'] = torch.tensor(0)
 
-    if end_points['use_plane']:
+    if True:#end_points['use_plane']:
         plane_z_loss, z_angle, z_res, z_sign, z_off0, z_off1 = compute_plane_loss(end_points, mode='z')
         plane_x_loss, x_angle, x_res, x_sign, x_off0, x_off1 = compute_plane_loss(end_points, mode='x')
         plane_y_loss, y_angle, y_res, y_sign, y_off0, y_off1 = compute_plane_loss(end_points, mode='y')
@@ -710,7 +710,7 @@ def get_loss(end_points, config):
         end_points['plane_front_loss'] = torch.tensor(0)
         end_points['plane_back_loss'] = torch.tensor(0)
 
-    if end_points['use_plane']:
+    if True:#end_points['use_plane']:
         #loss_plane = plane_upper_loss + plane_lower_loss + plane_left_loss + plane_right_loss + plane_front_loss + plane_back_loss
         loss_plane = plane_x_loss + plane_y_loss + plane_z_loss
         loss_plane *= 10

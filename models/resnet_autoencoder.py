@@ -488,7 +488,7 @@ class TwoStreamNetDecoder(nn.Module):
             layers.append(block(inplanes, planes))
         return nn.Sequential(*layers)
 
-    def forward(self, x, end_points):
+    def forward(self, x, end_points, inputs):
         latent_feature = x
         
         x = self.up1(latent_feature)
@@ -518,7 +518,7 @@ class TwoStreamNetDecoder(nn.Module):
         # print('up4' ,x.shape)
         x = self.up_layer42(x)
         pred2 = self.pred_layer2(x)
-        if end_points['sunrgbd'] == False:
+        if inputs['sunrgbd'] == False:
             pred1 = torch.nn.Sigmoid()(pred1)
             pred2 = torch.nn.Sigmoid()(pred2)
         end_points['vox_pred1'] = pred1

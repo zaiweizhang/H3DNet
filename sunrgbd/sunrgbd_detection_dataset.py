@@ -336,22 +336,22 @@ class SunrgbdDetectionVotesDataset(Dataset):
         plane_label = plane_label[choices,:]
 
         plane_votes_rot_front = np.concatenate([plane_front[:,0:3], plane_front[:,4:7], plane_front[:,8:11]], 1)
-        plane_votes_off_front = plane_front[:,[3,7,11]]
+        plane_votes_off_front = plane_front[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
 
         plane_votes_rot_back = np.concatenate([plane_back[:,0:3], plane_back[:,4:7], plane_back[:,8:11]], 1)
-        plane_votes_off_back = plane_back[:,[3,7,11]]
+        plane_votes_off_back = plane_back[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
 
         plane_votes_rot_lower = np.concatenate([plane_lower[:,0:3], plane_lower[:,4:7], plane_lower[:,8:11]], 1)
-        plane_votes_off_lower = plane_lower[:,[3,7,11]]
+        plane_votes_off_lower = plane_lower[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
 
         plane_votes_rot_upper = np.concatenate([plane_upper[:,0:3], plane_upper[:,4:7], plane_upper[:,8:11]], 1)
-        plane_votes_off_upper = plane_upper[:,[3,7,11]]
+        plane_votes_off_upper = plane_upper[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
 
         plane_votes_rot_left = np.concatenate([plane_left[:,0:3], plane_left[:,4:7], plane_left[:,8:11]], 1)
-        plane_votes_off_left = plane_left[:,[3,7,11]]
+        plane_votes_off_left = plane_left[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
 
         plane_votes_rot_right = np.concatenate([plane_right[:,0:3], plane_right[:,4:7], plane_right[:,8:11]], 1)
-        plane_votes_off_right = plane_right[:,[3,7,11]]
+        plane_votes_off_right = plane_right[:,[3,7,11]] + np.expand_dims(plane_label[:,-1], -1)
         
         ret_dict = {}
         ret_dict['point_clouds'] = point_cloud.astype(np.float32)
@@ -362,6 +362,9 @@ class SunrgbdDetectionVotesDataset(Dataset):
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
         target_bboxes_semcls[0:bboxes.shape[0]] = bboxes[:,-1] # from 0 to 9
+
+        ret_dict['gt_bbox'] = max_bboxes[:,:7].astype(np.float32)
+        
         ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
         ret_dict['vote_label'] = point_votes.astype(np.float32)
@@ -386,7 +389,6 @@ class SunrgbdDetectionVotesDataset(Dataset):
         ret_dict['plane_votes_z0'] = plane_votes_off_lower.astype(np.float32)
         ret_dict['plane_votes_z1'] = plane_votes_off_upper.astype(np.float32)
 
-        ret_dict['scan_name'] = scan_name
         ret_dict['num_instance'] = bboxes.shape[0]
         
         ret_dict['voxel'] =np.expand_dims(vox.astype(np.float32), 0)

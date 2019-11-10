@@ -224,6 +224,7 @@ class ScannetDetectionDataset(Dataset):
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) 
         # ------------------------------- LABELS ------------------------------        
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
+        gt_bboxes = np.zeros((MAX_NUM_OBJ, 7))
         target_bboxes_mask = np.zeros((MAX_NUM_OBJ))    
         angle_classes = np.zeros((MAX_NUM_OBJ,))
         angle_residuals = np.zeros((MAX_NUM_OBJ,))
@@ -433,12 +434,16 @@ class ScannetDetectionDataset(Dataset):
                     if (check_xy(plane_back, para_points) == False):
                         import pdb;pdb.set_trace()
 
-                    plane_votes_upper[plane_ind,:] = np.concatenate([np.stack([plane_upper[:3]]*len(plane_ind), 0), np.array([plane_upper[-1] - plane_vertices[plane_ind,3]]).T], 1)
-                    plane_votes_lower[plane_ind,:] = np.concatenate([np.stack([plane_lower[:3]]*len(plane_ind), 0), np.array([plane_lower[-1] - plane_vertices[plane_ind,3]]).T], 1)
-                    plane_votes_front[plane_ind,:] = np.concatenate([np.stack([plane_front[:3]]*len(plane_ind), 0), np.array([plane_front[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_front# / plane_front[-1]
-                    plane_votes_back[plane_ind,:] = np.concatenate([np.stack([plane_back[:3]]*len(plane_ind), 0), np.array([plane_back[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_back# / plane_back[-1]
-                    plane_votes_left[plane_ind,:] = np.concatenate([np.stack([plane_left[:3]]*len(plane_ind), 0), np.array([plane_left[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_left# / plane_left[-1]
-                    plane_votes_right[plane_ind,:] = np.concatenate([np.stack([plane_right[:3]]*len(plane_ind), 0), np.array([plane_right[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_right# / plane_right[-1]
+                    #plane_votes_upper[plane_ind,:] = np.concatenate([np.stack([plane_upper[:3]]*len(plane_ind), 0), np.array([plane_upper[-1] - plane_vertices[plane_ind,3]]).T], 1)
+                    plane_votes_upper[plane_ind,:] = plane_upper#np.stack([plane_upper[:4]]*len(plane_ind), 0)
+                    #plane_votes_lower[plane_ind,:] = np.concatenate([np.stack([plane_lower[:3]]*len(plane_ind), 0), np.array([plane_lower[-1] - plane_vertices[plane_ind,3]]).T], 1)
+                    plane_votes_lower[plane_ind,:] = plane_lower
+                    #plane_votes_front[plane_ind,:] = np.concatenate([np.stack([plane_front[:3]]*len(plane_ind), 0), np.array([plane_front[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_front# / plane_front[-1]
+                    plane_votes_front[plane_ind,:] = plane_front
+                    #plane_votes_back[plane_ind,:] = np.concatenate([np.stack([plane_back[:3]]*len(plane_ind), 0), np.array([plane_back[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_back# / plane_back[-1]
+                    plane_votes_back[plane_ind,:] = plane_back
+                    plane_votes_left[plane_ind,:] = plane_left
+                    plane_votes_right[plane_ind,:] = plane_right
                     #import pdb;pdb.set_trace()
                     '''
                     xyz = np.array([corners[2], corners[3], corners[6], corners[7]])
@@ -474,6 +479,7 @@ class ScannetDetectionDataset(Dataset):
 
         target_bboxes_mask[0:num_instance] = 1
         target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
+        gt_bboxes[0:num_instance,:7] = obj_meta[:,0:7]
         class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
         # NOTE: set size class as semantic class. Consider use size2class.
         size_classes[0:num_instance] = class_ind
@@ -518,6 +524,8 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['heading_residual_label'] = angle_residuals.astype(np.float32)
         ret_dict['size_class_label'] = size_classes.astype(np.int64)
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
+
+        ret_dict['gt_bbox'] = gt_bboxes.astype(np.float32)
         
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
         target_bboxes_semcls[0:num_instance] = \
@@ -548,7 +556,6 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
         ret_dict['pcl_color'] = pcl_color
         ret_dict['num_instance'] = num_instance
-        ret_dict['scan_name'] = scan_name
 
         ret_dict['voxel'] =np.expand_dims(vox.astype(np.float32), 0)
 #         ret_dict['sem_voxel'] =np.array(sem_vox, np.float32)
@@ -663,10 +670,14 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
 
     
 if __name__=='__main__': 
-    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=True)
+    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=True, use_angle=True)
     for i_example in range(1513):
         example = dset.__getitem__(i_example)
         print (i_example)
+        print (np.unique(example['plane_votes_x'][:,0]))
+        print (np.unique(example['plane_votes_x'][:,1]))
+        print (np.unique(example['plane_votes_y'][:,0]))
+        print (np.unique(example['plane_votes_y'][:,1]))
         continue
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
         pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,1], 'pc_sem_{}.ply'.format(str(i_example)),  18)
