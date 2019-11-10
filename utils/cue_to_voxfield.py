@@ -147,9 +147,13 @@ def get_3d_field(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5
     zmin = torch.max(m*0, locations[:, 2] - k2)
     zmax = torch.min(m*(vz - 1), locations[:, 2] + k2)
     for i in range(points.shape[0]):
-        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+#         vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+#                                                   k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
+#                                                   k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1] 
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1], \
+                                                gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
                                                   k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
-                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1] 
+                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1])
     return vox
     
 
@@ -170,8 +174,11 @@ def get_2d_field(points, vs_x=0.1, vs_y=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=
     ymin = torch.max(m*0, locations[:, 1] - k2)
     ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
     for i in range(points.shape[0]):
-        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
-                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1]
+#         vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+#                                                   k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1]
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1] += torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1], \
+                                                gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1])
     return vox
 
 def get_1d_field(points, vs_x=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=5.0):
@@ -186,7 +193,9 @@ def get_1d_field(points, vs_x=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=5.0):
     xmin = torch.max(m*0, locations-k2)
     xmax = torch.min(m*(vx - 1), locations + k2)
     for i in range(points.shape[0]):
-        vox[xmin[i]:xmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1]
+#         vox[xmin[i]:xmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1]
+        vox[xmin[i]:xmax[i]+1] += torch.max(vox[xmin[i]:xmax[i]+1], \
+            gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1])
     return vox
    
 def get_3d_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5.0, xmax=5.0, ymin=-5.0, ymax=5.0, zmin=-0.5, zmax=3.0):   
