@@ -177,7 +177,112 @@ def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.8
     potential += field[low[0], low[1]]*(1-f[0])*(1-f[1])
     potential += field[high[0], low[1]]*f[0]*(1-f[1])
     return potential
+   
+   
+def trilinear_interpolation_window(points, window_size=1, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
+    '''
+    Mainly for center and corner. 
+    '''
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    points[:,2] = (points[:,2]-zmin)/vs_z
     
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    vz = int((zmax-zmin)/vs_z)
+    vox = torch.zeros((vx,vy,vz)).float().cuda()
+    locations = points.int()
+    k2 = int((window_size - 1)/2)
+    x,y,z = torch.meshgrid(torch.arange(window_size), torch.arange(window_size),torch.arange(window_size))
+     
+    
+    m = torch.ones(points.shape[0]).int().cuda()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+    zmin = torch.max(m*0, locations[:, 2] - k2)
+    zmax = torch.min(m*(vz - 1), locations[:, 2] + k2)
+    for i in range(points.shape[0]):
+        window = torch.cat((x.reshape(-1,1), y.reshape(-1,1), z.reshape(-1,1)), dim=1).float()
+        window[:,0] += locations[i,0]-k2
+        window[:,1] += locations[i,1]-k2
+        window[:,2] += locations[i,2]-k2
+        dis_3d = torch.abs(points[i] - window)
+
+        dis = dis_3d[:,0]*dis_3d[:,1]*dis_3d[:,2]
+        dis = torch.reshape(dis, (window_size, window_size, window_size))
+        dis = sigma**2/(sigma**2+dis**2)
+        
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1], \
+                                                dis[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
+                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1])
+    
+    return vox
+
+def bilinear_interpolation_window(points, window_size=3, sigma=0.1, vs_x=0.1, vs_y=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84):
+    '''
+    Mainly for center and corner. 
+    '''
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    vox = torch.zeros((vx,vy)).float().cuda()
+    locations = points.int()
+    k2 = int((window_size - 1)/2)
+    x,y = torch.meshgrid(torch.arange(window_size), torch.arange(window_size))
+      
+    m = torch.ones(points.shape[0]).int().cuda()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+   
+    for i in range(points.shape[0]):
+        window = torch.cat((x.reshape(-1,1), y.reshape(-1,1)), dim=1).float()
+        window[:,0] += locations[i,0]-k2
+        window[:,1] += locations[i,1]-k2
+        dis_2d = torch.abs(points[i] - window)
+        dis = dis_2d[:,0]*dis_2d[:,1]
+        dis = torch.reshape(dis, (window_size, window_size))
+        dis = sigma**2/(sigma**2+dis**2)
+        
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1], \
+                                                dis[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1])
+    
+    return vox
+
+def linear_interpolation_window(points, window_size=3, sigma=0.1, vs_x=0.1, xmin=-3.84, xmax=3.84):
+    '''
+    Mainly for center and corner. 
+    '''
+    points = (points-xmin)/vs_x
+    vx = int((xmax-xmin)/vs_x)
+    vox = torch.zeros(vx).float().cuda()
+    locations = points.int()
+    k2 = int((window_size - 1)/2)
+    x = torch.arange(window_size)
+
+    m = torch.ones(points.shape[0]).int().cuda()
+    xmin = torch.max(m*0, locations - k2)
+    xmax = torch.min(m*(vx - 1), locations + k2)
+   
+    for i in range(points.shape[0]):
+        window = x.reshape(-1,1).float()
+        window += locations-k2
+       
+        dis_1d = torch.abs(points[i] - window)
+        dis = dis_1d
+        dis = sigma**2/(sigma**2+dis**2)
+        
+        vox[xmin[i]:xmax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1], dis[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1])
+    
+    return vox
+
 def get_oriented_corners_torch(bbx):
     center = bbx[0:3]
     xsize = bbx[3]
