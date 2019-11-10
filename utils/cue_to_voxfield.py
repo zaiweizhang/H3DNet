@@ -106,7 +106,159 @@ def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     vox[low[:], low[:]]+=(1-f[:])
     vox[high[:], low[:]]+=f[:]
     return vox
+def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
+  x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
+  x,y,z=x.float(), y.float(), z.float()
+  m = torch.exp(-((x-x_mean)**2 + (y-y_mean)**2+(z-z_mean)**2)/(2.0*dev**2))
+  return m
 
+def gaussian_2d_torch(x_mean, y_mean, ksize, dev=0.5):
+  x, y = torch.meshgrid(torch.arange(ksize), torch.arange(ksize))
+  x,y=x.float(), y.float()
+  m = torch.exp(-((x-x_mean)**2 + (y-y_mean)**2)/(2.0*dev**2))
+  return m
+
+def gaussian_1d_torch(x_mean, ksize, dev=0.5):
+  x= torch.arange(ksize).float()
+  m = torch.exp(-((x-x_mean)**2)/(2.0*dev**2))
+  return m
+
+def get_3d_field(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5.0, xmax=5.0, ymin=-5.0, ymax=5.0, zmin=-0.5, zmax=3.0):
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    points[:,2] = (points[:,2]-zmin)/vs_z
+    
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    vz = int((zmax-zmin)/vs_z)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+    points[:,2] = torch.clamp(points[:,2], 0, vz-1)
+    
+    vox = torch.zeros((vx,vy,vz)).float()
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_3d_torch(k2, k2, k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+    zmin = torch.max(m*0, locations[:, 2] - k2)
+    zmax = torch.min(m*(vz - 1), locations[:, 2] + k2)
+    for i in range(points.shape[0]):
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
+                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1] 
+    return vox
+    
+
+def get_2d_field(points, vs_x=0.1, vs_y=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=5.0, ymin=-5.0, ymax=5.0):
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+    vox = torch.zeros((vx,vy)).float()
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_2d_torch(k2, k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+    for i in range(points.shape[0]):
+        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1]
+    return vox
+
+def get_1d_field(points, vs_x=0.1,  dev=0.5, ksize=3, xmin=-5.0, xmax=5.0):
+    points= (points-xmin)/vs_x
+    vx = int((xmax-xmin)/vs_x)
+    points = torch.clamp(points, 0, vx-1)
+    vox = torch.zeros(vx).float()
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_1d_torch(k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations-k2)
+    xmax = torch.min(m*(vx - 1), locations + k2)
+    for i in range(points.shape[0]):
+        vox[xmin[i]:xmax[i]+1] += gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1]
+    return vox
+   
+def get_3d_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0.5, ksize=3, xmin=-5.0, xmax=5.0, ymin=-5.0, ymax=5.0, zmin=-0.5, zmax=3.0):   
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    points[:,2] = (points[:,2]-zmin)/vs_z
+    
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    vz = int((zmax-zmin)/vs_z)
+    
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+    points[:,2] = torch.clamp(points[:,2], 0, vz-1)
+    
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_3d_torch(k2, k2, k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+    zmin = torch.max(m*0, locations[:, 2] - k2)
+    zmax = torch.min(m*(vz - 1), locations[:, 2] + k2)
+    
+    potential = 0.0 
+    for i in range(points.shape[0]):
+        potential += torch.sum(field[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1]*gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
+                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1])
+    return potential
+ 
+
+def get_2d_potential_function(points, field, vs_x=0.1, vs_y=0.1, dev=0.5, ksize=3, xmin=-5.0, xmax=5.0, ymin=-5.0, ymax=5.0):   
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+    
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_2d_torch(k2, k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations[:, 0] - k2)
+    xmax = torch.min(m*(vx - 1), locations[:, 0] + k2)
+    ymin = torch.max(m*0, locations[:, 1] - k2)
+    ymax = torch.min(m*(vy - 1), locations[:, 1] + k2)
+    
+    potential = 0.0 
+    for i in range(points.shape[0]):
+        potential += torch.sum(field[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1]*gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1])
+    return potential
+    
+def get_1d_potential_function(points, field, vs_x=0.1, dev=0.5, ksize=3, xmin=-5.0, xmax=5.0):   
+    points = (points-xmin)/vs_x
+    vx = int((xmax-xmin)/vs_x)
+    points = torch.clamp(points, 0, vx-1)
+    
+    k2 = int((ksize - 1)/2)
+    gauss = gaussian_1d_torch(k2, ksize, dev=dev)
+    locations = points.int()
+    m = torch.ones(points.shape[0]).int()
+    xmin = torch.max(m*0, locations - k2)
+    xmax = torch.min(m*(vx - 1), locations + k2)
+    potential = 0.0 
+    for i in range(points.shape[0]):
+        potential += torch.sum(field[xmin[i]:xmax[i]+1]*gauss[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1])
+    return potential
 
 
 if __name__=="__main__":
