@@ -466,18 +466,47 @@ def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
     planez1 = torch.zeros((bbx.shape[0],1)).cuda()
     planez1[:,0] += -(corners[:,0,-1])
 
-    xcls = (torch.atan((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) + np.pi / 2) / (np.pi/12)
+    v1 = corners[:,1] - corners[:,5]
+    v2 = corners[:,5] - corners[:,7]
+    cp = torch.cross(v1, v2)
+    d = torch.sum(cp*corners[:,7], 1)
+    d = - d / torch.norm(cp, dim=1)
+    a = (cp / torch.norm(cp, dim=1).unsqueeze(1))[:,0]
+    b = (cp / torch.norm(cp, dim=1).unsqueeze(1))[:,1]
+    xcls = (torch.atan(-a/(b+1e-16)) + np.pi / 2) / (np.pi/12)
     planex0 = torch.zeros((bbx.shape[0],2)).cuda()
     planex0[:,0] += xcls
-    planex0[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) * corners[:,5,0] - corners[:,7,1]
+    planex0[:,1] += d
+    v1 = corners[:,0] - corners[:,4]
+    v2 = corners[:,4] - corners[:,6]
+    cp = torch.cross(v1, v2)
+    d = torch.sum(cp*corners[:,6], 1)
+    d = -d / torch.norm(cp, dim=1)
     planex1 = torch.zeros((bbx.shape[0],2)).cuda()
     planex1[:,0] += xcls
-    planex1[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) * corners[:,4,0] - corners[:,6,1]
-    import pdb;pdb.set_trace()
+    planex1[:,1] += d
 
-    
-    
-    return center[0:batch_data_label['num_instance'][0],...], corners[0:batch_data_label['num_instance'][0],...]
+    v1 = corners[:,7] - corners[:,6]
+    v2 = corners[:,6] - corners[:,2]
+    cp = torch.cross(v1, v2)
+    d = torch.sum(cp*corners[:,2], 1)
+    d = -d / torch.norm(cp, dim=1)
+    a = (cp / torch.norm(cp, dim=1).unsqueeze(1))[:,0]
+    b = (cp / torch.norm(cp, dim=1).unsqueeze(1))[:,1]
+    xcls = (torch.atan(-a/(b+1e-16)) + np.pi / 2) / (np.pi/12)
+    planey0 = torch.zeros((bbx.shape[0],2)).cuda()
+    planey0[:,0] += xcls
+    planey0[:,1] += d
+    v1 = corners[:,5] - corners[:,4]
+    v2 = corners[:,4] - corners[:,0]
+    cp = torch.cross(v1, v2)
+    d = torch.sum(cp*corners[:,0], 1)
+    d = -d / torch.norm(cp, dim=1)
+    planey1 = torch.zeros((bbx.shape[0],2)).cuda()
+    planey1[:,0] += xcls
+    planey1[:,1] += d
+
+    return center[0:batch_data_label['num_instance'][0],...], corners[0:batch_data_label['num_instance'][0],...], planex0[0:batch_data_label['num_instance'][0],...], planex1[0:batch_data_label['num_instance'][0],...], planey0[0:batch_data_label['num_instance'][0],...], planey1[0:batch_data_label['num_instance'][0],...], planez0[0:batch_data_label['num_instance'][0],...], planez1[0:batch_data_label['num_instance'][0],...]
 
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
