@@ -485,7 +485,7 @@ def train(start_epoch):
         # Reset numpy seed.
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
-        #train_one_epoch()
+        train_one_epoch()
         if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
