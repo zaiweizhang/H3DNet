@@ -177,7 +177,7 @@ def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.8
     potential += field[high[0], low[1]]*f[0]*(1-f[1])
     return potential
    
- def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
+def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
     '''
     Mainly for center and corner. 
     '''
@@ -460,7 +460,6 @@ def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
     corners[:,6] += center + vx - vy - vz
     corners[:,7] += center - vx - vy - vz
 
-    import pdb;pdb.set_trace()
     planez0 = torch.zeros((bbx.shape[0],1)).cuda()
     planez0[:,0] += -(corners[:,4,-1])
     
@@ -468,17 +467,17 @@ def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
     planez1[:,0] += -(corners[:,0,-1])
 
     xcls = (torch.atan((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) + np.pi / 2) / (np.pi/12)
-    planex0 = torch.zeros((bbx.shape[0],1)).cuda()
+    planex0 = torch.zeros((bbx.shape[0],2)).cuda()
     planex0[:,0] += xcls
-    planex0[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16) * corners[:,5,0] - corners[:,7,1]).unsqueeze(1)
-    planex1 = torch.zeros((bbx.shape[0],1)).cuda()
+    planex0[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) * corners[:,5,0] - corners[:,7,1]
+    planex1 = torch.zeros((bbx.shape[0],2)).cuda()
     planex1[:,0] += xcls
-    planex1[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16) * corners[:,4,0] - corners[:,6,1]).unsqueeze(1)
+    planex1[:,1] += ((corners[:,5,1] - corners[:,7,1]) / (corners[:,5,0] - corners[:,7,0] +1e-16)) * corners[:,4,0] - corners[:,6,1]
     import pdb;pdb.set_trace()
 
     
     
-    return center, corners
+    return center[0:batch_data_label['num_instance'][0],...], corners[0:batch_data_label['num_instance'][0],...]
 
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
