@@ -178,7 +178,28 @@ def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.8
     potential += field[high[0], low[1]]*f[0]*(1-f[1])
     return potential
     
-
+def get_oriented_corners_torch(bbx):
+    center = bbx[0:3]
+    xsize = bbx[3]
+    ysize = bbx[4]
+    zsize = bbx[5]
+    angle = bbx[6]
+    vx = torch.tensor([np.cos(angle), np.sin(angle), 0])
+    vy = torch.tensor([-np.sin(angle), np.cos(angle), 0])
+    vx = vx * torch.abs(xsize) / 2
+    vy = vy * torch.abs(ysize) / 2
+    vz = torch.tensor([0, 0, torch.abs(zsize) / 2])
+    corners = torch.zeros((8,3))
+    corners[0] = center + vx + vy + vz
+    corners[1] = center - vx + vy + vz
+    corners[2] = center + vx - vy + vz
+    corners[3] = center - vx - vy + vz
+    corners[4] = center + vx + vy - vz
+    corners[5] = center - vx + vy - vz
+    corners[6] = center + vx - vy - vz
+    corners[7] = center - vx - vy - vz
+    return corners
+   
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
   x,y,z=x.float(), y.float(), z.float()
