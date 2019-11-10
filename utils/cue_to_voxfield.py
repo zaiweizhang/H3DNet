@@ -106,6 +106,79 @@ def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     vox[low[:], low[:]]+=(1-f[:])
     vox[high[:], low[:]]+=f[:]
     return vox
+   
+
+def get_center_or_corner_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):    
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    points[:,2] = (points[:,2]-zmin)/vs_z
+    
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    vz = int((zmax-zmin)/vs_z)
+    
+    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+    points[:,2] = torch.clamp(points[:,2], 0, vz-1)
+
+    low = points.int()
+    high = low + 1
+    f = points - low.float()
+    low=low.long()
+    high = high.long()
+    
+    potential = torch.zeros(points.shape[0])
+    potential += field[low[:,0], low[:,1], low[:,2]]*(1-f[:,0])*(1-f[:,1])*(1-f[:,2])
+    potential += field[low[:,0], low[:,1], high[:,2]]*(1-f[:,0])*(1-f[:,1])*f[:,2]
+    potential += field[low[:,0], high[:,1], low[:,2]]*(1-f[:,0])*f[:,1]*(1-f[:,2])
+    potential += field[low[:,0], high[:,1], high[:,2]]*(1-f[:,0])*f[:,1]*f[:,2]
+    potential += field[high[:,0], low[:,1], low[:,2]]*f[:,0]*(1-f[:,1])*(1-f[:,2])
+    potential += field[high[:,0], high[:,1], low[:,2]]*f[:,0]*f[:,]*(1-f[:,2])
+    potential += field[high[:,0], low[:,1], high[:,2]]*f[:,0]*(1-f[:,1])*f[:,2] 
+    potential += field[high[:,0], high[:,1], high[:,2]]*f[:,0]*f[:,1]*f[:,2]
+    return torch.sum(potential)
+    
+def get_xy_plane_potential_function(points, field, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84):
+    points[:,0] = (points[:,0]-xmin)/vs_x
+    points[:,1] = (points[:,1]-ymin)/vs_y
+    
+    vx = int((xmax-xmin)/vs_x)
+    vy = int((ymax-ymin)/vs_y)
+    
+    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,1] = torch.clamp(points[:,1], 0, vy-1)
+
+    low = points.int()
+    high = low + 1
+    f = points - low.float()
+    low=low.long()
+    high = high.long()
+    
+    potential = torch.zeros(points.shape[0])
+    potential += field[low[:,0], low[:,1]]*(1-f[:,0])*(1-f[:,1])
+    potential += field[low[:,0], high[:,1]]*(1-f[:,0])*f[:,1]
+    potential += field[high[:,0], low[:,1]]*f[:,0]*(1-f[:,1])
+    potential += field[high[:,0], low[:,1]]*f[:,0]*(1-f[:,1])
+    return torch.sum(potential)
+
+
+def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.84):
+    points = (points-xmin)/vs_x
+    vx = int((xmax-xmin)/vs_x)
+    points = torch.clamp(points, 0, vx-1)
+
+    low = points.int()
+    high = low + 1
+    f = points - low.float()
+    low=low.long()
+    high = high.long()
+    
+    potential = 0.0
+    potential += field[low[0], low[1]]*(1-f[0])*(1-f[1])
+    potential += field[high[0], low[1]]*f[0]*(1-f[1])
+    return potential
+    
+
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))
   x,y,z=x.float(), y.float(), z.float()
