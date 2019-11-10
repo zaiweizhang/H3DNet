@@ -198,7 +198,7 @@ def get_3d_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, dev=0
     vy = int((ymax-ymin)/vs_y)
     vz = int((zmax-zmin)/vs_z)
     
-    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
     points[:,2] = torch.clamp(points[:,2], 0, vz-1)
     
@@ -226,7 +226,7 @@ def get_2d_potential_function(points, field, vs_x=0.1, vs_y=0.1, dev=0.5, ksize=
     points[:,1] = (points[:,1]-ymin)/vs_y
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
-    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
     
     k2 = int((ksize - 1)/2)
