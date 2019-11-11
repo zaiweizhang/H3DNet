@@ -225,6 +225,7 @@ class ScannetDetectionDataset(Dataset):
         # ------------------------------- LABELS ------------------------------        
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
         gt_bboxes = np.zeros((MAX_NUM_OBJ, 7))
+        pert_bboxes = np.zeros((MAX_NUM_OBJ, 7))
         target_bboxes_mask = np.zeros((MAX_NUM_OBJ))    
         angle_classes = np.zeros((MAX_NUM_OBJ,))
         angle_residuals = np.zeros((MAX_NUM_OBJ,))
@@ -492,7 +493,27 @@ class ScannetDetectionDataset(Dataset):
 
         target_bboxes_mask[0:num_instance] = 1
         target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
-        gt_bboxes[0:num_instance,:7] = obj_meta[:,0:7]
+        gt_bboxes[0:num_instance,:] = obj_meta[:,0:7]
+
+        for i in range(num_instance):
+            ### Perturb x y z by 0.5 to 1.0
+            if np.random.random() > 0.5:
+                pert_xyz = 1.0 - np.random.random((3))*0.5
+            else:
+                pert_xyz = -(1.0 - np.random.random((3))*0.5)
+            ### Perturb scale from 0.4 to 0.8
+            if np.random.random() > 0.5:
+                pert_scale = 1.0 + np.random.random((3))*0.5
+            else:
+                pert_scale = 1.0 - np.random.random((3))*0.5
+            if np.random.random() > 0.5:
+                pert_angle = np.random.random()*(np.pi)
+            else:
+                pert_angle = -np.random.random()*(np.pi)
+            pert_bboxes[i,0:3] += pert_xyz
+            pert_bboxes[i,3:6] *= pert_scale
+            pert_bboxes[i,6] = ((pert_bboxes[i,6] + np.pi / 2.0 + pert_angle) % np.pi) - np.pi / 2.0
+        
         class_ind = [np.where(DC.nyu40ids == x)[0][0] for x in obj_meta[:,-1]]   
         # NOTE: set size class as semantic class. Consider use size2class.
         size_classes[0:num_instance] = class_ind
@@ -539,6 +560,7 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
 
         ret_dict['gt_bbox'] = gt_bboxes.astype(np.float32)
+        ret_dict['pert_bbox'] = pert_bboxes.astype(np.float32)
         
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))                                
         target_bboxes_semcls[0:num_instance] = \

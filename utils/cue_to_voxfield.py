@@ -51,7 +51,7 @@ def trilinear_interpolation(points, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xm
     vox[high[:,0], high[:,1], high[:,2]]+=f[:,0]*f[:,1]*f[:,2]
     return vox
 
-def bilinear_interpolation(points, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84):
+def bilinear_interpolation(points, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84):
     '''
     Mainly for plane (d and theta).
     d: the same range of x or y
@@ -107,7 +107,7 @@ def linear_interpolation(points, vs_x=0.1,xmin=-3.84, xmax=3.84):
     return vox
    
 
-def get_center_or_corner_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):    
+def get_center_or_corner_potential_function(points, field, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
     points[:,0] = (points[:,0]-xmin)/vs_x
     points[:,1] = (points[:,1]-ymin)/vs_y
     points[:,2] = (points[:,2]-zmin)/vs_z
@@ -116,7 +116,7 @@ def get_center_or_corner_potential_function(points, field, vs_x=0.1, vs_y=0.1, v
     vy = int((ymax-ymin)/vs_y)
     vz = int((zmax-zmin)/vs_z)
     
-    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
     points[:,2] = torch.clamp(points[:,2], 0, vz-1)
 
@@ -125,26 +125,34 @@ def get_center_or_corner_potential_function(points, field, vs_x=0.1, vs_y=0.1, v
     f = points - low.float()
     low=low.long()
     high = high.long()
+
+    low[:,0] = torch.clamp(low[:,0], 0, vx-1)
+    low[:,1] = torch.clamp(low[:,1], 0, vy-1)
+    low[:,2] = torch.clamp(low[:,2], 0, vz-1)
+    high[:,0] = torch.clamp(high[:,0], 0, vx-1)
+    high[:,1] = torch.clamp(high[:,1], 0, vy-1)
+    high[:,2] = torch.clamp(high[:,2], 0, vz-1)
     
-    potential = torch.zeros(points.shape[0])
+    potential = torch.zeros(points.shape[0]).cuda()
     potential += field[low[:,0], low[:,1], low[:,2]]*(1-f[:,0])*(1-f[:,1])*(1-f[:,2])
     potential += field[low[:,0], low[:,1], high[:,2]]*(1-f[:,0])*(1-f[:,1])*f[:,2]
     potential += field[low[:,0], high[:,1], low[:,2]]*(1-f[:,0])*f[:,1]*(1-f[:,2])
     potential += field[low[:,0], high[:,1], high[:,2]]*(1-f[:,0])*f[:,1]*f[:,2]
     potential += field[high[:,0], low[:,1], low[:,2]]*f[:,0]*(1-f[:,1])*(1-f[:,2])
-    potential += field[high[:,0], high[:,1], low[:,2]]*f[:,0]*f[:,]*(1-f[:,2])
+    potential += field[high[:,0], high[:,1], low[:,2]]*f[:,0]*f[:,1]*(1-f[:,2])
     potential += field[high[:,0], low[:,1], high[:,2]]*f[:,0]*(1-f[:,1])*f[:,2] 
     potential += field[high[:,0], high[:,1], high[:,2]]*f[:,0]*f[:,1]*f[:,2]
-    return torch.sum(potential)
+    #return torch.sum(potential)
+    return potential
     
-def get_xy_plane_potential_function(points, field, vs_x=0.1, vs_y=10, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84):
+def get_xy_plane_potential_function(points, field, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84):
     points[:,0] = (points[:,0]-xmin)/vs_x
     points[:,1] = (points[:,1]-ymin)/vs_y
     
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
     
-    points[:.0] = torch.clamp(points[:,0], 0, vx-1)
+    points[:,0] = torch.clamp(points[:,0], 0, vx-1)
     points[:,1] = torch.clamp(points[:,1], 0, vy-1)
 
     low = points.int()
@@ -152,13 +160,19 @@ def get_xy_plane_potential_function(points, field, vs_x=0.1, vs_y=10, xmin=-3.84
     f = points - low.float()
     low=low.long()
     high = high.long()
+
+    low[:,0] = torch.clamp(low[:,0], 0, vx-1)
+    low[:,1] = torch.clamp(low[:,1], 0, vy-1)
+    high[:,0] = torch.clamp(high[:,0], 0, vx-1)
+    high[:,1] = torch.clamp(high[:,1], 0, vy-1)
     
-    potential = torch.zeros(points.shape[0])
+    potential = torch.zeros(points.shape[0]).cuda()
     potential += field[low[:,0], low[:,1]]*(1-f[:,0])*(1-f[:,1])
     potential += field[low[:,0], high[:,1]]*(1-f[:,0])*f[:,1]
     potential += field[high[:,0], low[:,1]]*f[:,0]*(1-f[:,1])
     potential += field[high[:,0], low[:,1]]*f[:,0]*(1-f[:,1])
-    return torch.sum(potential)
+    #return torch.sum(potential)
+    return potential
 
 
 def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.84):
@@ -171,10 +185,14 @@ def get_z_plane_potential_function(points, field, vs_x=0.1, xmin=-3.84, xmax=3.8
     f = points - low.float()
     low=low.long()
     high = high.long()
+
+    low = torch.clamp(low, 0, vx-1)
+    high = torch.clamp(high, 0, vx-1)
     
-    potential = 0.0
-    potential += field[low[0], low[1]]*(1-f[0])*(1-f[1])
-    potential += field[high[0], low[1]]*f[0]*(1-f[1])
+    potential = torch.zeros(points.shape[0]).cuda()
+    potential += field[low]*(1-f)
+    potential += field[high]*f
+    #return torch.sum(potential)
     return potential
    
 def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68):
@@ -184,13 +202,14 @@ def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, v
     points[:,0] = (points[:,0]-xmin)/vs_x
     points[:,1] = (points[:,1]-ymin)/vs_y
     points[:,2] = (points[:,2]-zmin)/vs_z
+    import pdb;pdb.set_trace()
     vx = int((xmax-xmin)/vs_x)
     vy = int((ymax-ymin)/vs_y)
     vz = int((zmax-zmin)/vs_z)
     vox = torch.zeros((vx,vy,vz)).float().cuda()
     locations = points.int()
     k2 = int((window_size - 1)/2)
-    x,y,z = torch.meshgrid(torch.arange(window_size), torch.arange(window_size),torch.arange(window_size))
+    x,y,z = torch.meshgrid(torch.arange(window_size).cuda(), torch.arange(window_size).cuda(), torch.arange(window_size).cuda())
     
     m = torch.ones(points.shape[0]).int().cuda()
     xmin = torch.max(m*0, locations[:, 0] - k2)
@@ -209,10 +228,13 @@ def trilinear_interpolation_window(points, window_size=5, sigma=0.1, vs_x=0.1, v
         dis = dis_3d[:,0]*dis_3d[:,1]*dis_3d[:,2]
         dis = torch.reshape(dis, (window_size, window_size, window_size))
         dis = sigma**2/(sigma**2+dis**2)
-        vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1], \
-                                                dis[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
-                                                  k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
-                                                  k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1])
+        try:
+            vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1] = torch.max(vox[xmin[i]:xmax[i]+1, ymin[i]:ymax[i]+1, zmin[i]:zmax[i]+1], \
+                                                                                     dis[k2-locations[i, 0]+xmin[i] : k2-locations[i, 0]+xmax[i]+1,\
+                                                                                         k2-locations[i, 1]+ymin[i] : k2-locations[i, 1]+ymax[i]+1,\
+                                                                                         k2-locations[i, 2]+zmin[i] : k2-locations[i, 2]+zmax[i]+1])
+        except:
+            import pdb;pdb.set_trace()
     
     return vox
 
@@ -228,7 +250,7 @@ def bilinear_interpolation_window(points, window_size=3, sigma=0.1, vs_x=0.1, vs
     vox = torch.zeros((vx,vy)).float().cuda()
     locations = points.int()
     k2 = int((window_size - 1)/2)
-    x,y = torch.meshgrid(torch.arange(window_size), torch.arange(window_size))
+    x,y = torch.meshgrid(torch.arange(window_size).cuda(), torch.arange(window_size).cuda())
       
     m = torch.ones(points.shape[0]).int().cuda()
     xmin = torch.max(m*0, locations[:, 0] - k2)
@@ -439,7 +461,7 @@ def get_oriented_cues_torch(bbx):
 
     return center, corners
 
-def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
+def get_oriented_cues_batch_torch(bbx, end_points):
     center = bbx[:,0:3]
     xsize = bbx[:,3]
     ysize = bbx[:,4]
@@ -506,7 +528,8 @@ def get_oriented_cues_batch_torch(bbx, end_points, batch_data_label):
     planey1[:,0] += xcls
     planey1[:,1] += d
 
-    return center[0:batch_data_label['num_instance'][0],...], corners[0:batch_data_label['num_instance'][0],...], planex0[0:batch_data_label['num_instance'][0],...], planex1[0:batch_data_label['num_instance'][0],...], planey0[0:batch_data_label['num_instance'][0],...], planey1[0:batch_data_label['num_instance'][0],...], planez0[0:batch_data_label['num_instance'][0],...], planez1[0:batch_data_label['num_instance'][0],...]
+    #return center[0:batch_data_label['num_instance'][0],...], corners[0:batch_data_label['num_instance'][0],...], planex0[0:batch_data_label['num_instance'][0],...], planex1[0:batch_data_label['num_instance'][0],...], planey0[0:batch_data_label['num_instance'][0],...], planey1[0:batch_data_label['num_instance'][0],...], planez0[0:batch_data_label['num_instance'][0],...], planez1[0:batch_data_label['num_instance'][0],...]
+    return center, corners, planex0, planex1, planey0, planey1, planez0, planez1
 
 def gaussian_3d_torch(x_mean, y_mean, z_mean,  ksize, dev=0.5):
   x, y, z = torch.meshgrid(torch.arange(ksize), torch.arange(ksize),torch.arange(ksize))

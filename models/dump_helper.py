@@ -222,7 +222,26 @@ def dump_planes(end_points, dump_dir, config, inference_switch=False):
     
     sio.savemat(os.path.join(dump_dir,'sample_output_point.mat'), {'seed_xyz':seed_xyz, 'mask':seed_gt_mask, 'gt_center': seed_gt_center, 'gt_corner': seed_gt_corner, 'pred_center': seed_pred_center, 'pred_corner': seed_pred_corner})
 
-def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=False):
+def get_plane_xy(plane_equ):
+    orgplane = np.zeros([plane_equ.shape[0], 4])
+    for i in range(len(plane_equ)):
+        organg = np.clip(plane_equ[i,0]+np.clip(plane_equ[i,1], a_min=0, a_max=1), a_min=0, a_max=12)*(np.pi/12) - np.pi/2
+        slope = np.tan(organg)
+        if plane_equ[i,2] >= 0:
+            norm = np.linalg.norm([-slope, 1])
+        else:
+            norm = np.linalg.norm([-slope, 1]) * (-1.0)
+        orgplane[i,:] = np.array([-slope/norm, 1/norm, 0, plane_equ[i,-1]])
+        #return np.sum(np.sum(para_points*orgplane[:3], 1) + orgplane[3]) / 4.0 < LOWER_THRESH
+    return orgplane#np.array()
+
+def get_plane_z(plane_equ):
+    orgplane = np.zeros([plane_equ.shape[0], 4])
+    for i in range(len(plane_equ)):
+        orgplane[i,:] = np.array([0, 0, 1.0, plane_equ[i,-1]])
+    return orgplane
+    
+def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_switch=False):
     ''' Dump results.
 
     Args:
@@ -289,50 +308,64 @@ def dump_objcue(input_points, end_points, dump_dir, config, inference_switch=Fal
 
         #pc_util.pc2obj(seed_gt_corner[i,inds,...], 'subpc_gt_corner_%d.obj' % i)
         #pc_util.pc2obj(seed_pred_corner[i,inds,...], 'subpc_pred_corner_%d.obj' % i)
-        sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...], 'gt_sem': seed_gt_sem[i,...], 'pred_sem': seed_pred_sem[i,...],  'pred_sem_top3': seed_pred_sem3[i,...]})
+        sio.savemat(os.path.join(dump_dir,dataset.scan_names[end_points['scan_idx'][i]]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...], 'gt_sem': seed_gt_sem[i,...], 'pred_sem': seed_pred_sem[i,...],  'pred_sem_top3': seed_pred_sem3[i,...]})
 
     ### Gt planes
     new_ind = torch.tensor(new_ind).cuda()
-    mode = 'upper'
-    seed_gt_upper_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_upper_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_upper = np.concatenate([seed_gt_upper_rot, np.expand_dims(seed_gt_upper_off, -1)], 2)
-    
-    mode = 'lower'
-    seed_gt_lower_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_lower_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_lower = np.concatenate([seed_gt_lower_rot, np.expand_dims(seed_gt_lower_off, -1)], 2)
-    
-    mode = 'left'
-    seed_gt_left_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_left_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_left = np.concatenate([seed_gt_left_rot, np.expand_dims(seed_gt_left_off, -1)], 2)
-    
-    mode = 'right'
-    seed_gt_right_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_right_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_right = np.concatenate([seed_gt_right_rot, np.expand_dims(seed_gt_right_off, -1)], 2)
-    
-    mode = 'front'
-    seed_gt_front_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_front_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_front = np.concatenate([seed_gt_front_rot, np.expand_dims(seed_gt_front_off, -1)], 2)
-    
-    mode = 'back'
-    seed_gt_back_rot = torch.gather(end_points['plane_votes_rot_'+mode][:,:,:3], 1, new_ind).detach().cpu().numpy()
-    seed_gt_back_off = torch.gather(end_points['plane_votes_off_'+mode][:,:,0], 1, seed_inds).detach().cpu().numpy()
-    seed_gt_back = np.concatenate([seed_gt_back_rot, np.expand_dims(seed_gt_back_off, -1)], 2)
 
-    pred_upper = np.concatenate([end_points['upper_rot'].detach().cpu().numpy(),np.expand_dims(end_points['upper_off'].detach().cpu().numpy() , -1)], -1)
-    pred_lower = np.concatenate([end_points['lower_rot'].detach().cpu().numpy(),np.expand_dims(end_points['lower_off'].detach().cpu().numpy() , -1)], -1)
-    pred_front = np.concatenate([end_points['front_rot'].detach().cpu().numpy(),np.expand_dims(end_points['front_off'].detach().cpu().numpy() , -1)], -1)
-    pred_back = np.concatenate([end_points['back_rot'].detach().cpu().numpy(),np.expand_dims(end_points['back_off'].detach().cpu().numpy() , -1)], -1)
-    pred_left = np.concatenate([end_points['left_rot'].detach().cpu().numpy(),np.expand_dims(end_points['left_off'].detach().cpu().numpy() , -1)], -1)
-    pred_right = np.concatenate([end_points['right_rot'].detach().cpu().numpy(),np.expand_dims(end_points['right_off'].detach().cpu().numpy() , -1)], -1)
+    seed_gtx_x = torch.gather(end_points['plane_votes_x'][:,:,:3], 1, new_ind).detach().cpu().numpy()
+    seed_gtx_left = torch.gather(end_points['plane_votes_x0'][:,:,0], 1, seed_inds).detach().cpu().numpy()
+    seed_gtx_right = torch.gather(end_points['plane_votes_x1'][:,:,0], 1, seed_inds).detach().cpu().numpy()
+
+    seed_gty_y = torch.gather(end_points['plane_votes_y'][:,:,:3], 1, new_ind).detach().cpu().numpy()
+    seed_gty_front = torch.gather(end_points['plane_votes_y0'][:,:,0], 1, seed_inds).detach().cpu().numpy()
+    seed_gty_back = torch.gather(end_points['plane_votes_y1'][:,:,0], 1, seed_inds).detach().cpu().numpy()
+
+    seed_gtz_z = torch.gather(end_points['plane_votes_z'][:,:,:3], 1, new_ind).detach().cpu().numpy()
+    seed_gtz_lower = torch.gather(end_points['plane_votes_z0'][:,:,0], 1, seed_inds).detach().cpu().numpy()
+    seed_gtz_upper = torch.gather(end_points['plane_votes_z1'][:,:,0], 1, seed_inds).detach().cpu().numpy()
     
-    for i in range(len(seed_gt_lower_rot)):
+    zangle = np.argmax(end_points['z_angle'].detach().cpu().numpy(), 1) # (batch_size, (3+out_dim)*vote_factor, num_seed)
+    zres = np.squeeze(end_points['z_res'].detach().cpu().numpy())
+    zsign = np.squeeze(end_points['z_sign'].detach().cpu().numpy())
+    zoff0 = end_points['z_d0'].detach().cpu().numpy()
+    zoff1 = end_points['z_d1'].detach().cpu().numpy()
+    plane_lower = np.stack([zangle, np.clip(zres, a_min=0, a_max=1), zsign, zoff0], -1)
+    plane_upper = np.stack([zangle, np.clip(zres, a_min=0, a_max=1), zsign, zoff1], -1)
+
+    xangle = np.argmax(end_points['x_angle'].detach().cpu().numpy(), 1) # (batch_size, (3+out_dim)*vote_factor, num_seed)
+    xres = np.squeeze(end_points['x_res'].detach().cpu().numpy())
+    xsign = np.squeeze(end_points['x_sign'].detach().cpu().numpy())
+    xoff0 = end_points['x_d0'].detach().cpu().numpy()
+    xoff1 = end_points['x_d1'].detach().cpu().numpy()
+    plane_left = np.stack([xangle, np.clip(xres, a_min=0, a_max=1), xsign, xoff0], -1)
+    plane_right = np.stack([xangle, np.clip(xres, a_min=0, a_max=1), xsign, xoff1], -1)
+
+    yangle = np.argmax(end_points['y_angle'].detach().cpu().numpy(), 1) # (batch_size, (3+out_dim)*vote_factor, num_seed)
+    yres = np.squeeze(end_points['y_res'].detach().cpu().numpy())
+    ysign = np.squeeze(end_points['y_sign'].detach().cpu().numpy())
+    yoff0 = end_points['y_d0'].detach().cpu().numpy()
+    yoff1 = end_points['y_d1'].detach().cpu().numpy()
+    plane_front = np.stack([yangle, np.clip(yres, a_min=0, a_max=1), ysign, yoff0], -1)
+    plane_back = np.stack([yangle, np.clip(yres, a_min=0, a_max=1), ysign, yoff1], -1)
+    
+    for i in range(len(plane_lower)):
         #sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper_rot[i,...], 'gt_off_upper': seed_gt_upper_off[i,...], 'gt_rot_lower': seed_gt_lower_rot[i,...], 'gt_off_lower': seed_gt_lower_off[i,...], 'gt_rot_right': seed_gt_right_rot[i,...], 'gt_off_right': seed_gt_right_off[i,...], 'gt_rot_left': seed_gt_left_rot[i,...], 'gt_off_left': seed_gt_left_off[i,...], 'gt_rot_front': seed_gt_front_rot[i,...], 'gt_off_front': seed_gt_front_off[i,...], 'gt_rot_back': seed_gt_back_rot[i,...], 'gt_off_back': seed_gt_back_off[i,...], 'rot_upper': end_points['upper_rot'][i,...].detach().cpu().numpy(), 'off_upper': end_points['upper_off'][i,...].detach().cpu().numpy(), 'rot_lower': end_points['lower_rot'][i,...].detach().cpu().numpy(), 'off_lower': end_points['lower_off'][i,...].detach().cpu().numpy(), 'rot_front': end_points['front_rot'][i,...].detach().cpu().numpy(), 'off_front': end_points['front_off'][i,...].detach().cpu().numpy(), 'rot_back': end_points['back_rot'][i,...].detach().cpu().numpy(), 'off_back': end_points['back_off'][i,...].detach().cpu().numpy(), 'rot_left': end_points['left_rot'][i,...].detach().cpu().numpy(), 'off_left': end_points['left_off'][i,...].detach().cpu().numpy(), 'rot_right': end_points['right_rot'][i,...].detach().cpu().numpy(), 'off_right': end_points['right_off'][i,...].detach().cpu().numpy()})
-        sio.savemat(os.path.join(dump_dir,end_points['scan_name'][i]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper[i,...], 'gt_lower': seed_gt_lower[i,...], 'gt_right': seed_gt_right[i,...], 'gt_left': seed_gt_left[i,...], 'gt_front': seed_gt_front[i,...], 'gt_back': seed_gt_back[i,...], 'pred_upper': pred_upper[i,...], 'pred_lower': pred_lower[i,...], 'pred_front': pred_front[i,...], 'pred_back': pred_back[i,...], 'pred_left': pred_left[i,...], 'pred_right': pred_right[i,...]})
+        seed_gt_lower = get_plane_z(np.concatenate([seed_gtz_z[i,...], np.expand_dims(seed_gtz_lower[i,...], -1)], -1))
+        seed_gt_upper = get_plane_z(np.concatenate([seed_gtz_z[i,...], np.expand_dims(seed_gtz_upper[i,...], -1)], -1))
+        seed_gt_left = get_plane_xy(np.concatenate([seed_gtx_x[i,...], np.expand_dims(seed_gtx_left[i,...], -1)], -1))
+        seed_gt_right = get_plane_xy(np.concatenate([seed_gtx_x[i,...], np.expand_dims(seed_gtx_right[i,...], -1)], -1))
+        seed_gt_front = get_plane_xy(np.concatenate([seed_gty_y[i,...], np.expand_dims(seed_gty_front[i,...], -1)], -1))
+        seed_gt_back = get_plane_xy(np.concatenate([seed_gty_y[i,...], np.expand_dims(seed_gty_back[i,...], -1)], -1))
+
+        pred_lower = get_plane_z(plane_lower[i,...])
+        pred_upper = get_plane_z(plane_upper[i,...])
+        pred_left = get_plane_xy(plane_left[i,...])
+        pred_right = get_plane_xy(plane_right[i,...])
+        pred_front = get_plane_xy(plane_front[i,...])
+        pred_back = get_plane_xy(plane_back[i,...])
+        
+        sio.savemat(os.path.join(dump_dir,dataset.scan_names[end_points['scan_idx'][i]]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper, 'gt_lower': seed_gt_lower, 'gt_right': seed_gt_right, 'gt_left': seed_gt_left, 'gt_front': seed_gt_front, 'gt_back': seed_gt_back, 'pred_upper': pred_upper, 'pred_lower': pred_lower, 'pred_front': pred_front, 'pred_back': pred_back, 'pred_left': pred_left, 'pred_right': pred_right})
 
     """
     # Voxel cues

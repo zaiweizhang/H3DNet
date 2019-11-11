@@ -198,13 +198,17 @@ if FLAGS.opt_proposal:
                   input_feature_dim=num_input_channel,
                   vote_factor=FLAGS.vote_factor,
                   sampling=FLAGS.cluster_sampling)
-
+   w_cons = MODEL.weightConstraint()
+   net_obj._modules['weight'].apply(w_cons)
+   
 if torch.cuda.device_count() > 1:
   log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
   # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
   net = nn.DataParallel(net)
 net.to(device)
 criterion = MODEL.get_loss
+if FLAGS.opt_proposal:
+    net_obj.to(device)
 
 # Load the Adam optimizer
 optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
@@ -282,6 +286,7 @@ def train_one_epoch():
             inputs['opt_proposal'] = False
         if FLAGS.opt_proposal:
             inputs['gt_bboxes'] = batch_data_label['gt_bbox']
+            inputs['pert_bboxes'] = batch_data_label['pert_bbox']
             ### Also need to get the initial proposal
         if FLAGS.get_data == True:
             with torch.no_grad():
@@ -301,8 +306,11 @@ def train_one_epoch():
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
             #optimize_proposal(inputs, end_points)
-            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
-        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
+            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TRAIN_DATASET)
+        if FLAGS.opt_proposal:
+            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, net=net_obj)
+        else:
+            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
         if FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
@@ -390,7 +398,7 @@ def evaluate_one_epoch():
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
         if FLAGS.get_data == True:
-            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG)
+            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TEST_DATASET)
         loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
 
         # Accumulate statistics and print out

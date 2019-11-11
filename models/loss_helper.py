@@ -18,6 +18,19 @@ NEAR_THRESHOLD = 0.3
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 
+def compute_potential_loss(model, end_points):
+    gt_potential = end_points['gt_potential']
+    pert_potential = end_points['pert_potential']
+
+    param_sum = torch.sum(model.weight.weight[0])
+    
+    crit = nn.MSELoss()
+    pert_loss = crit(gt_potential, pert_potential) + 1000*(param_sum - 1.0)*(param_sum - 1.0)
+    import pdb;pdb.set_trace()
+    
+    return pert_loss
+
+
 def compute_vote_loss(end_points):
     """ Compute vote loss: Match predicted votes to GT votes.
 
@@ -586,7 +599,7 @@ def compute_sem_cls_loss(end_points):
     sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask_plane.view(-1).float())/(torch.sum(seed_gt_votes_mask_plane.view(-1).float())+1e-6)
     return sem_cls_loss1+sem_cls_loss2+sem_cls_loss3
     
-def get_loss(inputs, end_points, config):
+def get_loss(inputs, end_points, config, net=None):
     """ Loss functions
 
     Args:
@@ -710,6 +723,11 @@ def get_loss(inputs, end_points, config):
         end_points['plane_front_loss'] = torch.tensor(0)
         end_points['plane_back_loss'] = torch.tensor(0)
 
+    if inputs['opt_proposal']:
+        loss = compute_potential_loss(net, end_points)
+        end_points['proposal_loss'] = loss
+        return loss, end_points
+    
     if True:#end_points['use_plane']:
         #loss_plane = plane_upper_loss + plane_lower_loss + plane_left_loss + plane_right_loss + plane_front_loss + plane_back_loss
         loss_plane = plane_x_loss + plane_y_loss + plane_z_loss

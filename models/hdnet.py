@@ -232,7 +232,7 @@ class HDNet(nn.Module):
         end_points["pred_sem_class3"] = net_sem
 
         end_points["pred_sem_class"] = torch.stack((torch.argmax(end_points["pred_sem_class1"], 1), torch.argmax(end_points["pred_sem_class2"], 1), torch.argmax(end_points["pred_sem_class3"], 1)), 1)
-        end_points["pred_sem_class_top3"] = torch.stack((torch.topk(end_points["pred_sem_class1"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class2"], 3, dim=1)[0], torch.topk(end_points["pred_sem_class3"], 3, dim=1)[0]), 1)
+        end_points["pred_sem_class_top3"] = torch.stack((torch.topk(end_points["pred_sem_class1"], 3, dim=1)[1], torch.topk(end_points["pred_sem_class2"], 3, dim=1)[1], torch.topk(end_points["pred_sem_class3"], 3, dim=1)[1]), 1)
         
         """
         if end_points['use_support']:
@@ -266,14 +266,17 @@ class OBJNet(nn.Module):
     def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr,
         input_feature_dim=0, num_proposal=128, vote_factor=1, sampling='vote_fps'):
         super().__init__()
+        self.weight = torch.nn.Linear(10,1) ###2 + 2 + 6
 
     def forward(self, inputs, end_points, batch_data_label, mode=""):
         ### 3D Field
         center_cue = torch.squeeze(end_points["vote_xyz_center"])
         #center_cue_field = cue_to_voxfield.get_3d_field(center_cue)
-        center_cue_field = cue_to_voxfield.trilinear_interpolation(center_cue,vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        #center_cue_field = cue_to_voxfield.trilinear_interpolation_window(center_cue, window_size=5, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        center_cue_field = cue_to_voxfield.trilinear_interpolation(center_cue, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
         corner_cue = torch.squeeze(end_points["vote_xyz_corner"])
-        corner_cue_field = cue_to_voxfield.trilinear_interpolation(corner_cue,vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        #corner_cue_field = cue_to_voxfield.trilinear_interpolation_window(corner_cue, window_size=5, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
+        corner_cue_field = cue_to_voxfield.trilinear_interpolation(corner_cue, vs_x=0.1, vs_y=0.1, vs_z=0.1, xmin=-3.84, xmax=3.84, ymin=-3.84, ymax=3.84, zmin=-0.2, zmax=2.68)
         vox_center_cue = end_points["vox_pred1"]
         vox_center_cue_field = torch.squeeze(vox_center_cue)
         #vox_center_cue_field = torch.squeeze(torch.nn.functional.interpolate(vox_center_cue, scale_factor=(0.6,0.6,0.6), mode='trilinear'))
@@ -283,23 +286,34 @@ class OBJNet(nn.Module):
 
         ### 1D Field
         plane_z0_cue = torch.squeeze(end_points['z_off0'])
+        #plane_z0_cue_field = cue_to_voxfield.linear_interpolation_window(plane_z0_cue, window_size=3, vs_x=0.1,xmin=-3.84, xmax=3.84)
         plane_z0_cue_field = cue_to_voxfield.linear_interpolation(plane_z0_cue, vs_x=0.1,xmin=-3.84, xmax=3.84)
         plane_z1_cue = end_points['z_off1']
+        #plane_z1_cue_field = cue_to_voxfield.linear_interpolation_window(plane_z1_cue, window_size=3, vs_x=0.1,xmin=-3.84, xmax=3.84)
         plane_z1_cue_field = cue_to_voxfield.linear_interpolation(plane_z1_cue, vs_x=0.1,xmin=-3.84, xmax=3.84)
 
         ### 2D Field
         plane_x0_cue = torch.stack([torch.squeeze(torch.argmax(end_points['x_angle'], 1)).float() + torch.squeeze(end_points['x_res']), torch.squeeze(end_points['x_off0'])], 1)
-        plane_x0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x0_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        #plane_x0_cue_field = cue_to_voxfield.bilinear_interpolation_window(plane_x0_cue, window_size=5, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_x0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x0_cue, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
         plane_x1_cue = torch.stack([torch.squeeze(torch.argmax(end_points['x_angle'], 1)).float() + torch.squeeze(end_points['x_res']), torch.squeeze(end_points['x_off1'])], 1)
-        plane_x1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x1_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        #plane_x1_cue_field = cue_to_voxfield.bilinear_interpolation_window(plane_x1_cue, window_size=5, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_x1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_x1_cue, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
         plane_y0_cue = torch.stack([torch.squeeze(torch.argmax(end_points['y_angle'], 1)).float() + torch.squeeze(end_points['y_res']), torch.squeeze(end_points['y_off0'])], 1)
-        plane_y0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y0_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        #plane_y0_cue_field = cue_to_voxfield.bilinear_interpolation_window(plane_y0_cue, window_size=5, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_y0_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y0_cue, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
         plane_y1_cue = torch.stack([torch.squeeze(torch.argmax(end_points['y_angle'], 1)).float() + torch.squeeze(end_points['y_res']), torch.squeeze(end_points['y_off1'])], 1)
-        plane_y1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y1_cue, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        #plane_y1_cue_field = cue_to_voxfield.bilinear_interpolation_window(plane_y1_cue, window_size=5, vs_x=12, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
+        plane_y1_cue_field = cue_to_voxfield.bilinear_interpolation(plane_y1_cue, vs_x=1, vs_y=0.1, xmin=0, xmax=12, ymin=-3.84, ymax=3.84)
 
         ###
         gt_bbox = torch.squeeze(inputs['gt_bboxes'])
-        center, corner, planex0, planex1, planey0, planey1, planez0, planez1 = cue_to_voxfield.get_oriented_cues_batch_torch(gt_bbox, end_points, batch_data_label)
+        center, corner, planex0, planex1, planey0, planey1, planez0, planez1 = cue_to_voxfield.get_oriented_cues_batch_torch(gt_bbox, end_points)
+        corner = corner.contiguous().view(-1,3)
+        pert_bbox = torch.squeeze(inputs['pert_bboxes'])
+        pert_center, pert_corner, pert_planex0, pert_planex1, pert_planey0, pert_planey1, pert_planez0, pert_planez1 = cue_to_voxfield.get_oriented_cues_batch_torch(pert_bbox, end_points)
+        pert_corner = pert_corner.contiguous().view(-1,3)
+        '''
         print (np.unique(batch_data_label['plane_votes_z0'].cpu().numpy()))
         print (np.unique(planez0[:].cpu().numpy()))
         print (np.unique(batch_data_label['plane_votes_z1'].cpu().numpy()))
@@ -316,11 +330,70 @@ class OBJNet(nn.Module):
         print (np.unique(planey0[:,1].cpu().numpy()))
         print (np.unique(batch_data_label['plane_votes_y1'].cpu().numpy()))
         print (np.unique(planey1[:,1].cpu().numpy()))
+        '''
+        pt_center = cue_to_voxfield.get_center_or_corner_potential_function(center, center_cue_field.detach())
+        #pt_center = torch.sum(pt_center*batch_data_label['box_label_mask'])
+        pt_center = torch.sum(pt_center*batch_data_label['box_label_mask'])
+        pt_corner = cue_to_voxfield.get_center_or_corner_potential_function(corner, corner_cue_field.detach())
+        corner_expand = torch.stack([batch_data_label['box_label_mask']]*8)
+        pt_corner = torch.sum(pt_corner*corner_expand.contiguous().view(-1))
+        vox_center = cue_to_voxfield.get_center_or_corner_potential_function(center, vox_center_cue_field.detach())
+        vox_center = torch.sum(vox_center*batch_data_label['box_label_mask'])
+        vox_corner = cue_to_voxfield.get_center_or_corner_potential_function(corner, vox_corner_cue_field.detach())
+        vox_corner = torch.sum(vox_corner*corner_expand.contiguous().view(-1))
+        pt_planex0 = cue_to_voxfield.get_xy_plane_potential_function(planex0, plane_x0_cue_field.detach())
+        pt_planex0 = torch.sum(pt_planex0*batch_data_label['box_label_mask'])
+        pt_planex1 = cue_to_voxfield.get_xy_plane_potential_function(planex1, plane_x1_cue_field.detach())
+        pt_planex1 = torch.sum(pt_planex1*batch_data_label['box_label_mask'])
+        pt_planey0 = cue_to_voxfield.get_xy_plane_potential_function(planey0, plane_y0_cue_field.detach())
+        pt_planey0 = torch.sum(pt_planey0*batch_data_label['box_label_mask'])
+        pt_planey1 = cue_to_voxfield.get_xy_plane_potential_function(planey1, plane_y1_cue_field.detach())
+        pt_planey1 = torch.sum(pt_planey1*batch_data_label['box_label_mask'])
+        pt_planez0 = cue_to_voxfield.get_z_plane_potential_function(torch.squeeze(planez0), plane_z0_cue_field.detach())
+        pt_planez0 = torch.sum(pt_planez0*batch_data_label['box_label_mask'])
+        pt_planez1 = cue_to_voxfield.get_z_plane_potential_function(torch.squeeze(planez1), plane_z1_cue_field.detach())
+        pt_planez1 = torch.sum(pt_planez1*batch_data_label['box_label_mask'])
 
-        import pdb;pdb.set_trace()
+        pert_pt_center = cue_to_voxfield.get_center_or_corner_potential_function(center, center_cue_field.detach())
+        pert_pt_center = torch.sum(pert_pt_center*batch_data_label['box_label_mask'])
+        pert_pt_corner = cue_to_voxfield.get_center_or_corner_potential_function(corner, corner_cue_field.detach())
+        pert_pt_corner = torch.sum(pert_pt_corner*corner_expand.contiguous().view(-1))
+        pert_vox_center = cue_to_voxfield.get_center_or_corner_potential_function(center, vox_center_cue_field.detach())
+        pert_vox_center = torch.sum(pert_vox_center*batch_data_label['box_label_mask'])
+        pert_vox_corner = cue_to_voxfield.get_center_or_corner_potential_function(corner, vox_corner_cue_field.detach())
+        pert_vox_corner = torch.sum(pert_vox_corner*corner_expand.contiguous().view(-1))
+        pert_pt_planex0 = cue_to_voxfield.get_xy_plane_potential_function(planex0, plane_x0_cue_field.detach())
+        pert_pt_planex0 = torch.sum(pert_pt_planex0*batch_data_label['box_label_mask'])
+        pert_pt_planex1 = cue_to_voxfield.get_xy_plane_potential_function(planex1, plane_x1_cue_field.detach())
+        pert_pt_planex1 = torch.sum(pert_pt_planex1*batch_data_label['box_label_mask'])
+        pert_pt_planey0 = cue_to_voxfield.get_xy_plane_potential_function(planey0, plane_y0_cue_field.detach())
+        pert_pt_planey0 = torch.sum(pert_pt_planey0*batch_data_label['box_label_mask'])
+        pert_pt_planey1 = cue_to_voxfield.get_xy_plane_potential_function(planey1, plane_y1_cue_field.detach())
+        pert_pt_planey1 = torch.sum(pert_pt_planey1*batch_data_label['box_label_mask'])
+        pert_pt_planez0 = cue_to_voxfield.get_z_plane_potential_function(torch.squeeze(planez0), plane_z0_cue_field.detach())
+        pert_pt_planez0 = torch.sum(pert_pt_planez0*batch_data_label['box_label_mask'])
+        pert_pt_planez1 = cue_to_voxfield.get_z_plane_potential_function(torch.squeeze(planez1), plane_z1_cue_field.detach())
+        pert_pt_planez1 = torch.sum(pert_pt_planez1*batch_data_label['box_label_mask'])
+
+        potential_vec = torch.stack((pt_center, pt_corner, vox_center, vox_corner, pt_planex0, pt_planex1, pt_planey0, pt_planey1, pt_planez0, pt_planez1))
+        pert_potential_vec = torch.stack((pert_pt_center, pert_pt_corner, pert_vox_center, pert_vox_corner, pert_pt_planex0, pert_pt_planex1, pert_pt_planey0, pert_pt_planey1, pert_pt_planez0, pert_pt_planez1))
+        
+        end_points['gt_potential'] = self.weight(potential_vec)
+        end_points['pert_potential'] = self.weight(pert_potential_vec)
+        return end_points
         #center_vox = pc_util.trilinear_interpolation(voted_xyz)
         #import pdb;pdb.set_trace()
 
+class weightConstraint(object):
+    def __init__(self):
+        pass
+    
+    def __call__(self,module):
+        if hasattr(module,'weight'):
+            w=module.weight.data
+            w=w.clamp(min=0.0,max=1.0)
+            module.weight.data=w
+        
 if __name__=='__main__':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))
     from sunrgbd_detection_dataset import SunrgbdDetectionVotesDataset, DC
