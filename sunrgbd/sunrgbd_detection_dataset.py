@@ -290,7 +290,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
         max_bboxes = np.zeros((MAX_NUM_OBJ, 8))
         max_bboxes[0:bboxes.shape[0],:] = bboxes
         pert_bboxes = np.zeros((MAX_NUM_OBJ, 7))
-        for i in range(num_instance):
+        for i in range(bboxes.shape[0]):
             ### Perturb x y z by 0.5 to 1.0
             if np.random.random() > 0.5:
                 pert_xyz = 1.0 - np.random.random((3))*0.5
