@@ -41,8 +41,6 @@ class SunrgbdDatasetConfig(object):
 class ClassificationDataset(Dataset):
     '''
     @Returns:
-        ['input']: 256 * (8 + (1 + 1 + 8 + 8 + 6))
-        ['bbox_gt']: MAX_NUM_OBJECT * 8
     '''
     def __init__(self, split_set='train', num_points=40000):
         self.proposals_dir = PROPOSALS_DIR
@@ -102,60 +100,41 @@ class ClassificationDataset(Dataset):
         inputs = np.hstack([point_cloud, mask[:, None]]) # num_points * 4
 
         # online generate label
-        dist_min = np.min(np.linalg.norm(center - bboxes_gt[:, :3]))
+        dist_min = np.min(np.linalg.norm(center - bboxes_gt[:, :3], axis=1))
         label = (dist_min < NEAR_THRESHOLD).astype(np.int)
 
         ret_dict = {}
 
         # change 1~18 class to 0~17 class
-        # inputs[:, 7] = inputs[:, 7] - 1
-        # bboxes_gt[:, 7] = bboxes_gt[:, 7] - 1
+        bbox_init_pps[7] = bbox_init_pps[7] - 1
+        bboxes_gt[:, 7] = bboxes_gt[:, 7] - 1
 
         ret_dict['scan_id'] = scan_id
         ret_dict['object_id'] = object_id
+
         ret_dict['inputs'] = inputs.astype(np.float32)
-        ret_dict['bbox_init_pps'] = bbox_init_pps  # (7,)
-        # ret_dict['bboxes_gt'] = bboxes_gt  # not the same shape, (num_gt_box, 7)
         ret_dict['label'] = label
+
+        ret_dict['bbox_init_pps'] = bbox_init_pps  # (8,)
+        ret_dict['bboxes_gt'] = np.zeros([MAX_NUM_OBJECT, 8]).astype(np.float32)
+        ret_dict['bboxes_gt_mask'] = np.zeros([MAX_NUM_OBJECT]).astype(np.float32)
+        ret_dict['bboxes_gt'][:bboxes_gt.shape[0]] = bboxes_gt
+        ret_dict['bboxes_gt_mask'][:bboxes_gt.shape[0]] = 1.0
         
         return ret_dict
 
 
 if __name__ == '__main__':
     dset = ClassificationDataset(split_set='all')
-    for i_example in range(100):
+    label_list = []
+    for i_example in range(256):
         scan_name = dset.scan_names[i_example]
         print(i_example, scan_name)
         example = dset.__getitem__(i_example)
         inputs = example['inputs']
         mask = inputs[:, 3]
         idx = np.where(mask)
-        print(idx[0].shape)
+        # print(idx[0].shape)
         bboxes_gt = example['bboxes_gt']
         bbox_init_pps = example['bbox_init_pps']
-        # visualize
-        pcd_pc = visual_utils.create_pointcloud_from_points(inputs[:, :3][list(set(range(dset.num_points)) - set(idx[0]))])
-        pcd_select = visual_utils.create_pointcloud_from_points(inputs[:, :3][idx], [0, 1, 0])
-        lineset_bbox_pps = visual_utils.create_lineset_bbox_from_params(bbox_init_pps, [0, 1, 0])
-        lineset_bbox_gt = [] 
-        for bp in bboxes_gt:
-            lineset_bbox_gt.append(visual_utils.create_lineset_bbox_from_params(bp))
-        o3d.visualization.draw_geometries([pcd_pc, pcd_select, lineset_bbox_pps] + lineset_bbox_gt)
-        
-    from IPython import embed; embed()
-
-    # bbox_gt_list = []
-    # for scan_name in dset.scan_names:
-    #     print(scan_name)
-    #     cues, bbox_init_pps, bbox_gt = dataset_utils.load_data(dset.data_dir, scan_name)
-    #     bbox_gt_list.append(bbox_gt)
-
-    # def my_worker_init_fn(worker_id): 
-    #     np.random.seed(np.random.get_state()[1][0] + worker_id) 
-                                                                    
-    # TRAIN_DATASET = ClassificationDataset(split_set='train')
-    # TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=8,                                            
-    # shuffle=True, num_workers=16, worker_init_fn=my_worker_init_fn)  
-    # for idx, batch_data in enumerate(TRAIN_DATALOADER):
-    #     print(idx)
-
+        label_list.append(example['label'])
