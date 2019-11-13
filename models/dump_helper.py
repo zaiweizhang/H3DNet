@@ -253,7 +253,7 @@ def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_s
     '''
     if not os.path.exists(dump_dir):
         os.system('mkdir %s'%(dump_dir))
-        
+
     # INPUT
     point_clouds = input_points['point_clouds'].cpu().numpy()
     #batch_size = point_clouds.shape[0]
@@ -280,7 +280,8 @@ def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_s
     seed_gt_sem = torch.gather(end_points['point_sem_cls_label'][...,0], 1, seed_inds).detach().cpu().numpy()
     seed_pred_sem = end_points['pred_sem_class'].detach().cpu().numpy()
     seed_pred_sem3 = end_points['pred_sem_class_top3'].detach().cpu().numpy()
-        
+
+    feature_map = end_points['feature_map'].detach().cpu().numpy()
     #sio.savemat(os.path.join(dump_dir,'point_cue.mat'), {'full_pc': point_clouds[:,:,:3], 'seed_xyz':seed_xyz, 'mask':seed_gt_mask, 'gt_center': seed_gt_center, 'gt_corner': seed_gt_corner, 'pred_center': seed_pred_center, 'pred_corner': seed_pred_corner})
     ### Visulization here
     new_ind = new_ind.detach().cpu().numpy()
@@ -308,7 +309,8 @@ def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_s
 
         #pc_util.pc2obj(seed_gt_corner[i,inds,...], 'subpc_gt_corner_%d.obj' % i)
         #pc_util.pc2obj(seed_pred_corner[i,inds,...], 'subpc_pred_corner_%d.obj' % i)
-        sio.savemat(os.path.join(dump_dir,dataset.scan_names[end_points['scan_idx'][i]]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...], 'gt_sem': seed_gt_sem[i,...], 'pred_sem': seed_pred_sem[i,...],  'pred_sem_top3': seed_pred_sem3[i,...]})
+        
+        sio.savemat(os.path.join(dump_dir,dataset.scan_names[end_points['scan_idx'][i]]+'_point_objcue.mat'), {'full_pc': point_clouds[i,:,:3], 'sub_pc':seed_xyz[i,...], 'feature_map':feature_map[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_center': seed_gt_center[i,...], 'gt_corner': seed_gt_corner[i,...], 'pred_center': seed_pred_center[i,...], 'pred_corner': seed_pred_corner[i,...], 'gt_sem': seed_gt_sem[i,...], 'pred_sem': seed_pred_sem[i,...],  'pred_sem_top3': seed_pred_sem3[i,...]})
 
     ### Gt planes
     new_ind = torch.tensor(new_ind).cuda()
