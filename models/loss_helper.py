@@ -25,8 +25,9 @@ def compute_potential_loss(model, end_points):
     param_sum = torch.sum(model.weight.weight[0])
     
     crit = nn.MSELoss()
-    pert_loss = crit(gt_potential, pert_potential) + 1000*(param_sum - 1.0)*(param_sum - 1.0)
-    import pdb;pdb.set_trace()
+    pert_loss = 10e6*(param_sum - 1.0)*(param_sum - 1.0)-crit(gt_potential, pert_potential)# + 10000*(param_sum - 1.0)*(param_sum - 1.0)
+    print (model.weight.weight[0])
+    #import pdb;pdb.set_trace()
     
     return pert_loss
 

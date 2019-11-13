@@ -212,6 +212,8 @@ if FLAGS.opt_proposal:
 
 # Load the Adam optimizer
 optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+if FLAGS.opt_proposal:
+    optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
 
 # Load checkpoint if there is any
 it = -1 # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
@@ -311,9 +313,14 @@ def train_one_epoch():
             loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, net=net_obj)
         else:
             loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
-        if FLAGS.get_data == False:
+        if FLAGS.opt_proposal == False and FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
+        if FLAGS.opt_proposal:
+            loss.backward()
+            optimizer_obj.step()
+            for p in net_obj.parameters():
+                p.data.clamp_(min=0.0,max=1.00001)
             
         # Accumulate statistics and print out
         for key in end_points:
@@ -494,7 +501,7 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True: # Eval every 10 epochs
+        if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
         save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1

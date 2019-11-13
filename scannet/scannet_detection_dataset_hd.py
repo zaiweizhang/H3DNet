@@ -498,18 +498,18 @@ class ScannetDetectionDataset(Dataset):
         for i in range(num_instance):
             ### Perturb x y z by 0.5 to 1.0
             if np.random.random() > 0.5:
-                pert_xyz = 1.0 - np.random.random((3))*0.5
+                pert_xyz = np.random.random((3))*0.2
             else:
-                pert_xyz = -(1.0 - np.random.random((3))*0.5)
+                pert_xyz = -np.random.random((3))*0.2
             ### Perturb scale from 0.4 to 0.8
             if np.random.random() > 0.5:
-                pert_scale = 1.0 + np.random.random((3))*0.5
+                pert_scale = 1.0 + np.random.random((3))*0.2
             else:
-                pert_scale = 1.0 - np.random.random((3))*0.5
+                pert_scale = 1.0 - np.random.random((3))*0.2
             if np.random.random() > 0.5:
-                pert_angle = np.random.random()*(np.pi)
+                pert_angle = np.random.random()*(np.pi / 4)
             else:
-                pert_angle = -np.random.random()*(np.pi)
+                pert_angle = -np.random.random()*(np.pi / 4)
             pert_bboxes[i,0:3] += pert_xyz
             pert_bboxes[i,3:6] *= pert_scale
             pert_bboxes[i,6] = ((pert_bboxes[i,6] + np.pi / 2.0 + pert_angle) % np.pi) - np.pi / 2.0
