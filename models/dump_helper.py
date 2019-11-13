@@ -367,6 +367,21 @@ def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_s
         
         sio.savemat(os.path.join(dump_dir,dataset.scan_names[end_points['scan_idx'][i]]+'_plane_objcue.mat'), {'full_pc':seed_xyz[i,...], 'subpc_mask':seed_gt_mask[i,...], 'gt_upper': seed_gt_upper, 'gt_lower': seed_gt_lower, 'gt_right': seed_gt_right, 'gt_left': seed_gt_left, 'gt_front': seed_gt_front, 'gt_back': seed_gt_back, 'pred_upper': pred_upper, 'pred_lower': pred_lower, 'pred_front': pred_front, 'pred_back': pred_back, 'pred_left': pred_left, 'pred_right': pred_right})
 
+        
+    pred_center_vox = end_points['vox_pred1']
+    pred_corner_vox = end_points['vox_pred2']
+    for i in range(pred_center_vox.shape[0]):
+        name = end_points['scan_name'][i]
+        center = pc_util.volume_to_point_cloud(pred_center_vox.detach().cpu().numpy()[i,0], thres=0.75)
+        corner = pc_util.volume_to_point_cloud(pred_corner_vox.detach().cpu().numpy()[i,0], thres=0.9)
+        pt_center = pc_util.volume_pt_to_pt(center, 0.0625, xmin=-4.0, xmax=4.0,ymin=0.0, ymax=8.0, zmin=-2.0, zmax=2.0)
+        pt_corner = pc_util.volume_pt_to_pt(corner, 0.0625, xmin=-4.0, xmax=4.0,ymin=0.0, ymax=8.0, zmin=-2.0, zmax=2.0)
+        print(pt_center.shape, pt_corner.shape)
+        center_label = np.zeros((pt_center.shape[0], 3))
+        corner_label = np.zeros((pt_corner.shape[0], 3))
+        sio.savemat(os.path.join(dump_dir, name+'_center_0.0625_vox.mat'), {'center_vox': pt_center, 'center_vox_label':center_label})
+        sio.savemat(os.path.join(dump_dir, name+'_corner_0.0625_vox.mat'), {'corner_vox': pt_corner, 'corner_vox_label':corner_label})
+
     """
     # Voxel cues
     sem_path =  '/tmp2/bosun/data/scannet/scannet_train_detection_data_vox/'
