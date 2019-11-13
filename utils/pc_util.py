@@ -966,12 +966,16 @@ def multichannel_volume_to_point_cloud(vol):
   pt_labels=np.array(pt_labels, np.int32)
   return pts, pt_labels   
 
-def volume_pt_to_pt(vpt, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
-  pt = vpt*vs
-  pt[:,0] = pt[:,0]+xymin
-  pt[:,1] = pt[:,1]+xymin
-  pt[:,2] = pt[:,2]+zmin
-  return pt
+def volume_pt_to_pt(vpt, vs=0.025, xmin=-3.2, xmax=3.2, ymin=-3.2, ymax=3.2, zmin=-0.1, zmax=2.32):
+  if vpt.shape[0]==0:
+      return np.zeros((0,3))
+  else:
+    pt = vpt*vs
+    pt[:,0] = pt[:,0]+xmin
+    pt[:,1] = pt[:,1]+ymin
+    pt[:,2] = pt[:,2]+zmin
+    return pt
+
   
 def process_bbx(bbx, vs=0.06, xymin=-3.84, xymax=3.84, zmin=-0.2, zmax=2.68):
   center = bbx[:,0:3]
@@ -1193,13 +1197,17 @@ def point_add_sem_label(pt, sem, k=10):
     sem_pt = sem[:, 0:3]
     sem_label = sem[:,3]
     pt_label = np.zeros(pt.shape[0])
-    nbrs = NearestNeighbors(n_neighbors=k,algorithm='ball_tree').fit(sem_pt)
-    distances, indices = nbrs.kneighbors(pt)
-    for i in range(pt.shape[0]):
-        labels = sem_label[indices[i]]
-        l, count = stats.mode(labels, axis=None)
-        pt_label[i] = l
-    return pt_label
+    if pt.shape[0]==0:
+        return pt_label
+    else:
+        nbrs = NearestNeighbors(n_neighbors=k,algorithm='ball_tree').fit(sem_pt)
+        distances, indices = nbrs.kneighbors(pt)
+        for i in range(pt.shape[0]):
+            labels = sem_label[indices[i]]
+            l, count = stats.mode(labels, axis=None)
+            pt_label[i] = l
+        return pt_label
+
 
     
 # ----------------------------------------
