@@ -373,7 +373,7 @@ def dump_objcue(input_points, end_points, dump_dir, config, dataset, inference_s
     pred_center_vox = end_points['vox_pred1']
     pred_corner_vox = end_points['vox_pred2']
     for i in range(pred_center_vox.shape[0]):
-        name = end_points['scan_name'][i]
+        name = dataset.scan_names[end_points['scan_idx'][i]]
         center = pc_util.volume_to_point_cloud(pred_center_vox.detach().cpu().numpy()[i,0], thres=0.75)
         corner = pc_util.volume_to_point_cloud(pred_corner_vox.detach().cpu().numpy()[i,0], thres=0.9)
         pt_center = pc_util.volume_pt_to_pt(center, 0.0625, xmin=-4.0, xmax=4.0,ymin=0.0, ymax=8.0, zmin=-2.0, zmax=2.0)

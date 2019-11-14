@@ -662,8 +662,8 @@ def get_loss(inputs, end_points, config, net=None):
         end_points['vote_loss_center'] = vote_loss_center
         vote_loss_corner = compute_objcue_vote_loss(end_points)*10
         end_points['vote_loss_corner'] = vote_loss_corner
-        sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
-        end_points['sem_loss'] = sem_loss
+        #sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
+        #end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
         if inputs['sunrgbd']:
             voxel_center_loss_focal = 0
@@ -735,9 +735,9 @@ def get_loss(inputs, end_points, config, net=None):
         loss_plane *= 10
         end_points['loss_plane'] = loss_plane
         
-        loss = loss_plane + vote_loss_center + vote_loss_corner + sem_loss + 0.1*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
+        loss = loss_plane + vote_loss_center + vote_loss_corner + 0.1*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
-        return loss, end_points
+        #return loss, end_points
 
     ### Init Proposal loss
     # Vote loss

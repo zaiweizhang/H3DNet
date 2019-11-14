@@ -72,7 +72,7 @@ class HDNet(nn.Module):
         #self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net = Pointnet2BackbonePlane(input_feature_dim=self.input_feature_dim)
         self.backbone_net_point = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        #self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         self.backbone_net_voxel = TwoStreamNetEncoder()
         #self.backbone_net_other = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
@@ -86,6 +86,7 @@ class HDNet(nn.Module):
         #self.conv2 = torch.nn.Conv1d(128,num_class,1)
         #self.conv2 = torch.nn.Conv1d(128,2,1)
 
+        '''
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
         #self.conv_sem1 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
@@ -105,7 +106,7 @@ class HDNet(nn.Module):
         self.conv_sem6 = torch.nn.Conv1d(128,(num_class),1)
         self.bn_sem3 = torch.nn.BatchNorm1d(128)
         self.dropout_sem3 = torch.nn.Dropout(0.5)
-        
+        '''
         # Hough voting
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
@@ -116,8 +117,8 @@ class HDNet(nn.Module):
         self.vgen_voxel = TwoStreamNetDecoder()
 
         # Vote aggregation and detection
-        #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-        #    mean_size_arr, num_proposal, sampling)
+        self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+            mean_size_arr, num_proposal, sampling)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -137,7 +138,7 @@ class HDNet(nn.Module):
         batch_size = inputs['plane_label'].shape[0]
 
         end_points = self.backbone_net_point(inputs['point_clouds'], end_points)
-        end_points = self.backbone_net_point(inputs['point_clouds'], end_points, mode='sem')
+        #end_points = self.backbone_net_point(inputs['point_clouds'], end_points, mode='sem')
         end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
         end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points)
         
@@ -163,11 +164,11 @@ class HDNet(nn.Module):
             features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], newxyz)
         features_vox = features_vox.contiguous().transpose(2,1)
     
-        xyz_sem = end_points['fp2_xyz'+'sem']
-        features_sem = end_points['fp2_features'+'sem']
-        end_points['seed_inds'+'sem'] = end_points['fp2_inds'+'sem']
-        end_points['seed_xyz'+'sem'] = xyz_sem
-        end_points['seed_features'+'sem'] = features_sem
+        #xyz_sem = end_points['fp2_xyz'+'sem']
+        #features_sem = end_points['fp2_features'+'sem']
+        #end_points['seed_inds'+'sem'] = end_points['fp2_inds'+'sem']
+        #end_points['seed_xyz'+'sem'] = xyz_sem
+        #end_points['seed_features'+'sem'] = features_sem
         
         #features_combine_point = torch.cat((features, features_plane, features_sem.detach()), 1)
         #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
@@ -176,6 +177,7 @@ class HDNet(nn.Module):
         #features_combine_plane = torch.cat((features, features_plane, features_sem.detach()), 1)
         #features_combine_plane = torch.cat((features.detach(), features_plane, features_vox.detach()), 1)
         features_combine_plane = torch.cat((features, features_plane, features_vox), 1)
+        end_points["feature_map"] = features_combine_point
         allfeat = torch.cat((newxyz, torch.cat((features, features_plane), 1).contiguous().transpose(2,1)), 2)
         if inputs['sunrgbd']:
             features_other_vox = pc_util.pt_to_voxel_feature_batch_sunrgbd(allfeat)
@@ -211,13 +213,12 @@ class HDNet(nn.Module):
         #net_upper, net_lower, net_left, net_right, net_front, net_back, plane_feature = self.vgen_plane(xyz_plane, features_combine_plane)
         end_points = self.vgen_plane(xyz_plane, features_combine_plane, end_points)
 
+        end_points = self.pnet(proposal_xyz, proposal_features, end_points)
         ### Semantic Segmentation
-        features_combine_sem_point = torch.cat((features_sem, features.detach()), 1)
-        features_combine_sem_corner = torch.cat((features_sem, features.detach()), 1)
-        features_combine_sem_plane = torch.cat((features_sem, features_plane.detach()), 1)
         #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
         #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature
         #features_combine_sem_plane = torch.cat((features_sem, plane_feature), 1)#plane_feature
+        '''
         features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
         net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_for_sem))))
         net_sem = self.conv_sem2(net_sem)
@@ -233,7 +234,7 @@ class HDNet(nn.Module):
 
         end_points["pred_sem_class"] = torch.stack((torch.argmax(end_points["pred_sem_class1"], 1), torch.argmax(end_points["pred_sem_class2"], 1), torch.argmax(end_points["pred_sem_class3"], 1)), 1)
         end_points["pred_sem_class_top3"] = torch.stack((torch.topk(end_points["pred_sem_class1"], 3, dim=1)[1], torch.topk(end_points["pred_sem_class2"], 3, dim=1)[1], torch.topk(end_points["pred_sem_class3"], 3, dim=1)[1]), 1)
-        
+        '''
         """
         if end_points['use_support']:
             end_points = self.pnet(xyz_support, features_support, end_points, mode='_support')
