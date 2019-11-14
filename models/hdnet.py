@@ -30,7 +30,7 @@ from voting_module import VotingModule
 from voting_module_point import VotingPointModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
-from proposal_module import ProposalModule
+from proposal_module_hd import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
 from resnet_autoencoder import TwoStreamNetEncoder, TwoStreamNetDecoder
@@ -198,11 +198,11 @@ class HDNet(nn.Module):
         end_points['vote_features'] = proposal_features
         
         #voted_xyz, voted_xyz_corner, center_feature, corner_feature = self.vgen_point(xyz, features_combine_point)
-        voted_xyz, voted_xyz_corner = self.vgen_point(xyz, features_combine_point)
+        voted_xyz_corner, voted_xyz_corner_feature = self.vgen_point(xyz, features_combine_point)
         #features_norm = torch.norm(features, p=2, dim=1)
         #features = features.div(features_norm.unsqueeze(1))
-        end_points['vote_xyz_center'] = voted_xyz
         end_points['vote_xyz_corner'] = voted_xyz_corner
+        end_points['vote_xyz_corner_feature'] = voted_xyz_corner_feature
 
         end_points = self.vgen_voxel(features_combine_vox, end_points, inputs)
         
@@ -211,9 +211,9 @@ class HDNet(nn.Module):
         xyz_plane = torch.cat((xyz, seed_plane), -1)
         
         #net_upper, net_lower, net_left, net_right, net_front, net_back, plane_feature = self.vgen_plane(xyz_plane, features_combine_plane)
-        end_points = self.vgen_plane(xyz_plane, features_combine_plane, end_points)
+        plane_xyz, plane_features, end_points = self.vgen_plane(xyz_plane, features_combine_plane, end_points)
 
-        end_points = self.pnet(proposal_xyz, proposal_features, end_points)
+        end_points = self.pnet(proposal_xyz, proposal_features, voted_xyz_corner, voted_xyz_corner_feature, plane_xyz, plane_features, end_points)
         ### Semantic Segmentation
         #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
         #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature

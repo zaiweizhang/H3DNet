@@ -208,7 +208,7 @@ def compute_center_plane_loss(end_points):
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'].shape[0]
     num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
-    vote_xyz = end_points['vote_xyz_center'] # B,num_seed*vote_factor,3
+    vote_xyz = end_points['vote_xyz'] # B,num_seed*vote_factor,3
     seed_inds = end_points['seed_inds'].long() # B,num_seed in [0,num_points-1]
 
     seed_gt_votes_mask = torch.gather(end_points['plane_label_mask'], 1, seed_inds)
@@ -331,8 +331,9 @@ def compute_plane_loss(end_points, mode='x'):
     off1_dist, _ = torch.min(dist2, dim=1)
     off1_dist = off1_dist.view(batch_size, num_seed)
     off1_loss = torch.sum(off1_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
-    
-    return angle_loss + sign_loss + res_loss + off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
+
+    return off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
+    #return angle_loss + sign_loss + res_loss + off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
     
 def compute_objcue_vote_loss(end_points):
     """ Compute vote loss: Match predicted votes to GT votes.
@@ -658,8 +659,6 @@ def get_loss(inputs, end_points, config, net=None):
     
     # Compute support vote loss
     if True:#end_points['use_objcue']:
-        vote_loss_center = compute_vote_center_loss(end_points)*10
-        end_points['vote_loss_center'] = vote_loss_center
         vote_loss_corner = compute_objcue_vote_loss(end_points)*10
         end_points['vote_loss_corner'] = vote_loss_corner
         #sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
@@ -735,7 +734,7 @@ def get_loss(inputs, end_points, config, net=None):
         loss_plane *= 10
         end_points['loss_plane'] = loss_plane
         
-        loss = loss_plane + vote_loss_center + vote_loss_corner + 0.1*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
+        loss = loss_plane + vote_loss_corner + 0.1*end_points['voxel_loss']# + loss_plane_corner + loss_plane_center
         end_points['loss'] = loss
         #return loss, end_points
 

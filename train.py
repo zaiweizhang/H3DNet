@@ -418,6 +418,8 @@ def evaluate_one_epoch():
         center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
         corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
+
+        '''
         for i in range(len(batch_data_label['num_instance'])):
             ### For point
             pre_sem = end_points['pred_sem_class'][i,0,...].detach().cpu().numpy()
@@ -448,10 +450,10 @@ def evaluate_one_epoch():
 
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
                 total_cls_angle_plane[cls] += len(gt_sem)
-            
-        #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        #ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        '''
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         '''
@@ -466,15 +468,8 @@ def evaluate_one_epoch():
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
-
-    log_string("total_sem_acc: %f" % (total_correct_sem / float(total_sem)))
-    for cls in DATASET_CONFIG.class2type:
-        log_string("For %s: %f"%(DATASET_CONFIG.class2type[cls], correct_cls[cls] / float(total_cls[cls])))
-    log_string("total_sem_acc_plane: %f" % (total_correct_sem_plane / float(total_sem_plane)))
-    for cls in DATASET_CONFIG.class2type:
-        log_string("For plane %s: %f"%(DATASET_CONFIG.class2type[cls], correct_cls_plane[cls] / float(total_cls_plane[cls])))
-    for cls in ['x', 'y', 'z']:
-        log_string("For plane class %s: %f"%(cls, correct_cls_angle_plane[cls] / float(total_cls_angle_plane[cls])))
+    #for cls in ['x', 'y', 'z']:
+    #    log_string("For plane class %s: %f"%(cls, correct_cls_angle_plane[cls] / float(total_cls_angle_plane[cls])))
     # Evaluate average precision
     metrics_dict = ap_calculator.compute_metrics()
     for key in metrics_dict:
