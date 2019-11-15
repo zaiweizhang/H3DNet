@@ -329,8 +329,8 @@ def train_one_epoch():
                 stat_dict[key] += end_points[key].item()
 
         ### For voxel
-        center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
-        corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
+        #center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
+        #corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         #if i % 100 == 0 and i!=0: 
         #    save_vox_results(vox, corners, pred_corner, opt.outf, epoch, i, 'train_corner')
         #    save_vox_results(vox, center, pred_center, opt.outf, epoch, i, 'train_center')
@@ -343,7 +343,7 @@ def train_one_epoch():
             for key in sorted(stat_dict.keys()):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
-            log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
+            #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
@@ -415,9 +415,9 @@ def evaluate_one_epoch():
                 stat_dict[key] += end_points[key].item()
 
         ### For voxel
-        center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
-        corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
-        log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
+        #center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
+        #corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
+        #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
 
         '''
         for i in range(len(batch_data_label['num_instance'])):

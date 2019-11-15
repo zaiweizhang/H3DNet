@@ -178,7 +178,8 @@ class PointnetSAModuleVotes(nn.Module):
             sigma: float = None, # for RBF pooling
             normalize_xyz: bool = False, # noramlize local XYZ with radius
             sample_uniformly: bool = False,
-            ret_unique_cnt: bool = False
+            ret_unique_cnt: bool = False,
+            same_idx: bool = False,
     ):
         super().__init__()
 
@@ -193,7 +194,8 @@ class PointnetSAModuleVotes(nn.Module):
             self.sigma = self.radius/2
         self.normalize_xyz = normalize_xyz
         self.ret_unique_cnt = ret_unique_cnt
-
+        self.same_idx = same_idx
+        
         if npoint is not None:
             self.grouper = pointnet2_utils.QueryAndGroup(radius, nsample,
                 use_xyz=use_xyz, ret_grouped_xyz=True, normalize_xyz=normalize_xyz,
@@ -230,14 +232,17 @@ class PointnetSAModuleVotes(nn.Module):
             (B, npoint) tensor of the inds
         """
 
-        xyz_flipped = xyz.transpose(1, 2).contiguous()
-        if inds is None:
-            inds = pointnet2_utils.furthest_point_sample(xyz, self.npoint)
+        if not self.same_idx:
+            xyz_flipped = xyz.transpose(1, 2).contiguous()
+            if inds is None:
+                inds = pointnet2_utils.furthest_point_sample(xyz, self.npoint)
+            else:
+                assert(inds.shape[1] == self.npoint)
+            new_xyz = pointnet2_utils.gather_operation(
+                xyz_flipped, inds
+            ).transpose(1, 2).contiguous() if self.npoint is not None else None
         else:
-            assert(inds.shape[1] == self.npoint)
-        new_xyz = pointnet2_utils.gather_operation(
-            xyz_flipped, inds
-        ).transpose(1, 2).contiguous() if self.npoint is not None else None
+            new_xyz = xyz
 
         if not self.ret_unique_cnt:
             grouped_features, grouped_xyz = self.grouper(

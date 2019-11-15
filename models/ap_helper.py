@@ -41,7 +41,7 @@ def softmax(x):
     probs /= np.sum(probs, axis=len(shape)-1, keepdims=True)
     return probs
 
-def parse_predictions(end_points, config_dict):
+def parse_predictions(end_points, config_dict, mode='opt'):
     """ Parse predictions to OBB parameters and suppress overlapping boxes
     
     Args:
@@ -58,17 +58,17 @@ def parse_predictions(end_points, config_dict):
             where pred_list_i = [(pred_sem_cls, box_params, box_score)_j]
             where j = 0, ..., num of valid detections - 1 from sample input i
     """
-    pred_center = end_points['center'] # B,num_proposal,3
-    pred_heading_class = torch.argmax(end_points['heading_scores'], -1) # B,num_proposal
-    pred_heading_residual = torch.gather(end_points['heading_residuals'], 2,
+    pred_center = end_points['center'+mode] # B,num_proposal,3
+    pred_heading_class = torch.argmax(end_points['heading_scores'+mode], -1) # B,num_proposal
+    pred_heading_residual = torch.gather(end_points['heading_residuals'+mode], 2,
         pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
     pred_heading_residual.squeeze_(2)
-    pred_size_class = torch.argmax(end_points['size_scores'], -1) # B,num_proposal
-    pred_size_residual = torch.gather(end_points['size_residuals'], 2,
+    pred_size_class = torch.argmax(end_points['size_scores'+mode], -1) # B,num_proposal
+    pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2,
         pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
     pred_size_residual.squeeze_(2)
-    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'], -1) # B,num_proposal
-    sem_cls_probs = softmax(end_points['sem_cls_scores'].detach().cpu().numpy()) # B,num_proposal,10
+    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+mode], -1) # B,num_proposal
+    sem_cls_probs = softmax(end_points['sem_cls_scores'+mode].detach().cpu().numpy()) # B,num_proposal,10
     pred_sem_cls_prob = np.max(sem_cls_probs,-1) # B,num_proposal
 
     num_proposal = pred_center.shape[1] 

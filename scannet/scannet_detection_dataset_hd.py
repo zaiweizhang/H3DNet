@@ -705,9 +705,10 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
 
     
 if __name__=='__main__': 
-    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=True, use_angle=True)
+    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=False, use_angle=False)
     for i_example in range(1513):
         example = dset.__getitem__(i_example)
+        import pdb;pdb.set_trace()
         print (i_example)
         print (np.unique(example['plane_votes_x'][:,0]))
         print (np.unique(example['plane_votes_x'][:,1]))
