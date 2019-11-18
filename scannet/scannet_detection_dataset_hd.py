@@ -521,11 +521,11 @@ class ScannetDetectionDataset(Dataset):
                                             target_bboxes[0:num_instance, 3:6] - DC.mean_size_arr[class_ind,:]
         # angle_classes[0:num_instance] = class_ind
         # angle_residuals[0:num_instance] = obj_meta[:,6]
-        for i in range(num_instance):
-            angle_class, angle_residual = DC.angle2class2(obj_meta[i, 6])
-            angle_classes[i] = angle_class
-            angle_residuals[i] = angle_residual
-            assert np.abs(DC.class2angle2(angle_class, angle_residual) - obj_meta[i, 6]) < 1e-6
+        #for i in range(num_instance):
+        #    angle_class, angle_residual = DC.angle2class2(obj_meta[i, 6])
+        #    angle_classes[i] = angle_class
+        #    angle_residuals[i] = angle_residual
+        #    assert np.abs(DC.class2angle2(angle_class, angle_residual) - obj_meta[i, 6]) < 1e-6
 
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical

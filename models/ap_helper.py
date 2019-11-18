@@ -103,7 +103,7 @@ def parse_predictions(end_points, config_dict, mode='opt'):
                     nonempty_box_mask[i,j] = 0
         # -------------------------------------
 
-    obj_logits = end_points['objectness_scores'].detach().cpu().numpy()
+    obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
     obj_prob = softmax(obj_logits)[:,:,1] # (B,K)
     if not config_dict['use_3d_nms']:
         # ---------- NMS input: pred_with_prob in (B,K,7) -----------

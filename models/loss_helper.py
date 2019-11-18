@@ -432,7 +432,7 @@ def compute_objectness_loss(end_points, mode=''):
     objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
 
     # Compute objectness loss
-    objectness_scores = end_points['objectness_scores']
+    objectness_scores = end_points['objectness_scores'+mode]
     criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
     objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
     objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
@@ -462,7 +462,7 @@ def compute_box_and_sem_cls_loss(end_points, config, mode=''):
     num_class = config.num_class
     mean_size_arr = config.mean_size_arr
 
-    object_assignment = end_points['object_assignment']
+    object_assignment = end_points['object_assignment'+mode]
     batch_size = object_assignment.shape[0]
 
     # Compute center loss
@@ -470,7 +470,7 @@ def compute_box_and_sem_cls_loss(end_points, config, mode=''):
     gt_center = end_points['center_label'][:,:,0:3]
     dist1, ind1, dist2, _ = nn_distance(pred_center, gt_center) # dist1: BxK, dist2: BxK2
     box_label_mask = end_points['box_label_mask']
-    objectness_label = end_points['objectness_label'].float()
+    objectness_label = end_points['objectness_label'+mode].float()
     centroid_reg_loss1 = \
         torch.sum(dist1*objectness_label)/(torch.sum(objectness_label)+1e-6)
     centroid_reg_loss2 = \
@@ -754,28 +754,42 @@ def get_loss(inputs, end_points, config, net=None):
         loss_plane_center = compute_center_plane_loss(end_points)
         end_points['loss_plane_center'] = loss_plane_center*50
         
-        loss = loss_plane + vote_loss_corner + 0*end_points['voxel_loss'] + 5*loss_plane_corner + 5*loss_plane_center
+        loss = loss_plane + vote_loss_corner + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
         end_points['loss'] = loss
         #return loss, end_points
 
     ### Init Proposal loss
     # Vote loss
-    vote_loss = compute_vote_loss(end_points)*10
+    vote_loss = compute_vote_loss(end_points)
     end_points['vote_loss'] = vote_loss
         
     # Obj loss
     objectness_loss, objectness_label, objectness_mask, object_assignment = \
-                                                                                compute_objectness_loss(end_points)
-    end_points['objectness_loss'] = objectness_loss
-    end_points['objectness_label'] = objectness_label
-    end_points['objectness_mask'] = objectness_mask
-    end_points['object_assignment'] = object_assignment
+                                                                                compute_objectness_loss(end_points, mode='center')
+    end_points['objectness_loss'+'center'] = objectness_loss
+    end_points['objectness_label'+'center'] = objectness_label
+    end_points['objectness_mask'+'center'] = objectness_mask
+    end_points['object_assignment'+'center'] = object_assignment
     total_num_proposal = objectness_label.shape[0]*objectness_label.shape[1]
     end_points['pos_ratio'] = \
                               torch.sum(objectness_label.float().cuda())/float(total_num_proposal)
     end_points['neg_ratio'] = \
                               torch.sum(objectness_mask.float())/float(total_num_proposal) - end_points['pos_ratio']
 
+    # Obj loss finetune
+    objectness_loss_opt, objectness_label_opt, objectness_mask_opt, object_assignment_opt = \
+                                                                                compute_objectness_loss(end_points, mode='opt')
+    end_points['objectness_loss'+'opt'] = objectness_loss_opt
+    end_points['objectness_label'+'opt'] = objectness_label_opt
+    end_points['objectness_mask'+'opt'] = objectness_mask_opt
+    end_points['object_assignment'+'opt'] = object_assignment_opt
+    total_num_proposal_opt = objectness_label_opt.shape[0]*objectness_label_opt.shape[1]
+    end_points['pos_ratio_opt'] = \
+                              torch.sum(objectness_label_opt.float().cuda())/float(total_num_proposal_opt)
+    end_points['neg_ratio_opt'] = \
+                              torch.sum(objectness_mask_opt.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
+    #objectness_reg_loss = compute_objectness_reg_loss(end_points)
+    
     # Box loss and sem cls loss
     center_loss, heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss = \
         compute_box_and_sem_cls_loss(end_points, config, mode='center')
@@ -801,7 +815,12 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['box_loss_opt'] = box_loss_opt
     
     # Final loss function
-    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
+    if inputs['epoch'] < 180:
+        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt
+    elif inputs['epoch'] < 250:
+        proposalloss = 0*vote_loss + 0*0.5*objectness_loss + 0*box_loss + 0*0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt# + objectness_reg_loss
+    else:
+        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
     proposalloss *= 10
     loss += proposalloss
     end_points['init_proposal_loss'] = proposalloss
@@ -809,7 +828,7 @@ def get_loss(inputs, end_points, config, net=None):
         
     # --------------------------------------------
     # Some other statistics
-    obj_pred_val = torch.argmax(end_points['objectness_scores'], 2) # B,K
+    obj_pred_val = torch.argmax(end_points['objectness_scores'+'center'], 2) # B,K
     obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float()*objectness_mask)/(torch.sum(objectness_mask)+1e-6)
     end_points['obj_acc'] = obj_acc
 

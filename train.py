@@ -200,27 +200,43 @@ if FLAGS.opt_proposal:
                   sampling=FLAGS.cluster_sampling)
    w_cons = MODEL.weightConstraint()
    net_obj._modules['weight'].apply(w_cons)
-   
-if torch.cuda.device_count() > 1:
-  log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
-  # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-  net = nn.DataParallel(net)
-net.to(device)
-criterion = MODEL.get_loss
-if FLAGS.opt_proposal:
-    net_obj.to(device)
-
-# Load the Adam optimizer
-optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
-if FLAGS.opt_proposal:
-    optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
 
 # Load checkpoint if there is any
 it = -1 # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
 start_epoch = 0
 if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     checkpoint = torch.load(CHECKPOINT_PATH)
+    '''
+    # 1. filter out unnecessary keys
+    model_dict = net.state_dict()
+    pretrained_dict = checkpoint['model_state_dict']
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if (('pnet.vote_aggregation_opt' not in k) and ('pnet.conv_corner' not in k) and ('pnet.bn_corner' not in k))}
+    # 2. overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+    net.load_state_dict(model_dict)
+    '''
     net.load_state_dict(checkpoint['model_state_dict'])
+    #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    start_epoch = checkpoint['epoch']
+    log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
+
+if torch.cuda.device_count() > 1:
+  log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
+  # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+  net = nn.DataParallel(net)
+net.to(device)
+# Load the Adam optimizer
+
+criterion = MODEL.get_loss
+if FLAGS.opt_proposal:
+    net_obj.to(device)
+
+optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+if FLAGS.opt_proposal:
+    optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
+if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
+    checkpoint = torch.load(CHECKPOINT_PATH)
+    #net.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch']
     log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
@@ -279,9 +295,9 @@ def train_one_epoch():
         # Forward pass
         optimizer.zero_grad()
         if FLAGS.dataset == 'sunrgbd':
-            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True}
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True, 'epoch': EPOCH_CNT}
         else:
-            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False}
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False,  'epoch': EPOCH_CNT}
         if FLAGS.opt_proposal:
             inputs['opt_proposal'] = True
         else:
@@ -387,9 +403,9 @@ def evaluate_one_epoch():
         # Forward pass
         inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel']}
         if FLAGS.dataset == 'sunrgbd':
-            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True}
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': True,  'epoch': EPOCH_CNT}
         else:
-            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False}
+            inputs = {'point_clouds': batch_data_label['point_clouds'], 'plane_label': batch_data_label['plane_label'], 'voxel_label': batch_data_label['voxel'], 'sunrgbd': False,  'epoch': EPOCH_CNT}
         if FLAGS.opt_proposal:
             inputs['opt_proposal'] = True
         else:
@@ -451,7 +467,10 @@ def evaluate_one_epoch():
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
                 total_cls_angle_plane[cls] += len(gt_sem)
         '''
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        if EPOCH_CNT < 180:
+            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='center')
+        else:
+            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='opt')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
@@ -479,7 +498,7 @@ def evaluate_one_epoch():
     return mean_loss
 
 def train(start_epoch):
-    global EPOCH_CNT 
+    global EPOCH_CNT
     min_loss = 1e10
     loss = 0
     local_epoch = MAX_EPOCH 

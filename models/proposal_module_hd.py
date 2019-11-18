@@ -20,32 +20,36 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     batch_size = net_transposed.shape[0]
     num_proposal = net_transposed.shape[1]
 
+    #if mode == 'opt':
+    #    start = 0
+    #else:
+    start = 2
     objectness_scores = net_transposed[:,:,0:2]
-    end_points['objectness_scores'] = objectness_scores
+    end_points['objectness_scores'+mode] = objectness_scores
     
     base_xyz = end_points['aggregated_vote_xyz'] # (batch_size, num_proposal, 3)
-    center = base_xyz + net_transposed[:,:,2:5] # (batch_size, num_proposal, 3)
+    center = base_xyz + net_transposed[:,:,start:start+3] # (batch_size, num_proposal, 3)
     end_points['center'+mode] = center
 
-    heading_scores = net_transposed[:,:,5:5+num_heading_bin]
-    heading_residuals_normalized = net_transposed[:,:,5+num_heading_bin:5+num_heading_bin*2]
+    heading_scores = net_transposed[:,:,start+3:start+3+num_heading_bin]
+    heading_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin:start+3+num_heading_bin*2]
     end_points['heading_scores'+mode] = heading_scores # Bxnum_proposalxnum_heading_bin
     end_points['heading_residuals_normalized'+mode] = heading_residuals_normalized # Bxnum_proposalxnum_heading_bin (should be -1 to 1)
     end_points['heading_residuals'+mode] = heading_residuals_normalized * (np.pi/num_heading_bin) # Bxnum_proposalxnum_heading_bin
 
-    size_scores = net_transposed[:,:,5+num_heading_bin*2:5+num_heading_bin*2+num_size_cluster]
-    size_residuals_normalized = net_transposed[:,:,5+num_heading_bin*2+num_size_cluster:5+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
+    size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
+    size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
     end_points['size_scores'+mode] = size_scores
     end_points['size_residuals_normalized'+mode] = size_residuals_normalized
     end_points['size_residuals'+mode] = size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
 
-    sem_cls_scores = net_transposed[:,:,5+num_heading_bin*2+num_size_cluster*4:] # Bxnum_proposalx10
+    sem_cls_scores = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster*4:] # Bxnum_proposalx10
     end_points['sem_cls_scores'+mode] = sem_cls_scores
     return end_points
 
 
 class ProposalModule(nn.Module):
-    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
+    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=128):
         super().__init__() 
 
         self.num_class = num_class
@@ -70,7 +74,7 @@ class ProposalModule(nn.Module):
                 npoint=self.num_proposal,
                 radius=0.6,
                 nsample=32,
-                mlp=[self.seed_feat_dim+3+num_heading_bin*2+num_size_cluster*4+self.num_class, 128, 128, 128],
+                mlp=[self.seed_feat_dim+2+3+num_heading_bin*2+num_size_cluster*4+self.num_class, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True
             )
@@ -118,7 +122,7 @@ class ProposalModule(nn.Module):
 
         self.conv_corner1 = torch.nn.Conv1d(128,128,1)
         self.conv_corner2 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner3 = torch.nn.Conv1d(128,3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.conv_corner3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         self.bn_corner1 = torch.nn.BatchNorm1d(128)
         self.bn_corner2 = torch.nn.BatchNorm1d(128)
 
@@ -188,9 +192,9 @@ class ProposalModule(nn.Module):
 
         comb_xyz = torch.cat((xyz, xyz_corner, xyz_plane), 1)
         features_center = pointnet2_utils.gather_operation(features_center, sample_inds).contiguous()
-        comb_xyz_center_feature = torch.cat((net[:,2:,:], features_center), 1)
-        comb_xyz_corner_feature = torch.cat((torch.zeros((features_corner.shape[0], net[:,2:,:].shape[1], features_corner.shape[2])).cuda(), features_corner), 1)
-        comb_xyz_plane_feature = torch.cat((torch.zeros((features_plane.shape[0], net[:,2:,:].shape[1], features_plane.shape[2])).cuda(), features_plane), 1)
+        comb_xyz_center_feature = torch.cat((net, features_center), 1)
+        comb_xyz_corner_feature = torch.cat((torch.zeros((features_corner.shape[0], net.shape[1], features_corner.shape[2])).cuda(), features_corner), 1)
+        comb_xyz_plane_feature = torch.cat((torch.zeros((features_plane.shape[0], net.shape[1], features_plane.shape[2])).cuda(), features_plane), 1)
         comb_xyz_feature = torch.cat((comb_xyz_center_feature, comb_xyz_corner_feature, comb_xyz_plane_feature), -1)
         #comb_xyz_plane_feature = torch.cat((net, features_plane), 1)
         #comb_xyz_corner_plane = torch.cat((xyz, xyz_plane), 1)
