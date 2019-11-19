@@ -291,7 +291,8 @@ class ScannetDetectionDataset(Dataset):
         # in the data preparation step) we'll compute the instance bbox
         # from the points sharing the same instance label. 
         point_votes = np.zeros([self.num_points, 3])
-        point_votes_corner = np.zeros([self.num_points, 3])
+        point_votes_corner1 = np.zeros([self.num_points, 3])
+        point_votes_corner2 = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
         point_sem_label = np.zeros(self.num_points)
         
@@ -355,11 +356,15 @@ class ScannetDetectionDataset(Dataset):
                 point_votes_mask[ind] = 1.0
                 point_sem_label[ind] = DC.nyu40id2class_sem[meta[-1]]
                 
-                xtemp = np.stack([x]*len(corners))
-                dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
-                sel_corner = np.argmin(dist, 0)
-                for i in range(len(ind)):
-                    point_votes_corner[ind[i], :] = corners[sel_corner[i]] - x[i,:]
+                #xtemp = np.stack([x]*len(corners))
+                #dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
+                #sel_corner = np.argmin(dist, 0)
+                #for i in range(len(ind)):
+                #    point_votes_corner[ind[i], :] = corners[sel_corner[i]] - x[i,:]
+                point_votes_corner1[ind, :] = corners[0] - x
+                point_votes_corner2[ind, :] = corners[-1] - x
+                #point_votes_corner3[ind, :] = corners[] - x
+                
                 selected_instances.append(i_instance)
                 selected_centers.append(center)
 
@@ -530,7 +535,8 @@ class ScannetDetectionDataset(Dataset):
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
         point_sem_label = np.tile(np.expand_dims(point_sem_label, -1), (1, 3)) # make 3 votes identical
-        point_votes_corner = np.tile(point_votes_corner, (1, 3)) # make 3 votes identical
+        point_votes_corner1 = np.tile(point_votes_corner1, (1, 3)) # make 3 votes identical
+        point_votes_corner2 = np.tile(point_votes_corner2, (1, 3)) # make 3 votes identical
 
         plane_votes_rot_front = np.tile(plane_votes_front[:,:3], (1, 3)) # make 3 votes identical
         plane_votes_off_front = np.tile(np.expand_dims(plane_votes_front[:,3], -1), (1, 3)) # make 3 votes identical
@@ -571,7 +577,8 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
         ret_dict['vote_label'] = point_votes.astype(np.float32)
-        ret_dict['vote_label_corner'] = point_votes_corner.astype(np.float32)
+        ret_dict['vote_label_corner1'] = point_votes_corner1.astype(np.float32)
+        ret_dict['vote_label_corner2'] = point_votes_corner2.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
 
         ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices[:,:4]], 1).astype(np.float32)

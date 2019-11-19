@@ -206,16 +206,14 @@ it = -1 # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
 start_epoch = 0
 if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     checkpoint = torch.load(CHECKPOINT_PATH)
-    '''
     # 1. filter out unnecessary keys
     model_dict = net.state_dict()
     pretrained_dict = checkpoint['model_state_dict']
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if (('pnet.vote_aggregation_opt' not in k) and ('pnet.conv_corner' not in k) and ('pnet.bn_corner' not in k))}
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if (('pnet' not in k))}
     # 2. overwrite entries in the existing state dict
     model_dict.update(pretrained_dict)
     net.load_state_dict(model_dict)
-    '''
-    net.load_state_dict(checkpoint['model_state_dict'])
+    #net.load_state_dict(checkpoint['model_state_dict'])
     #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch']
     log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
@@ -270,6 +268,8 @@ CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.25, 'use_old_type_nms':False, 'cls_nms':True,
     'per_class_proposal': True, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
+
+EPOCH_THRESH = 400
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
 
@@ -363,7 +363,11 @@ def train_one_epoch():
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
-    ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+    ap_calculator_center = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_corner = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_plane = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
     total_correct_sem = 0
@@ -467,12 +471,17 @@ def evaluate_one_epoch():
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
                 total_cls_angle_plane[cls] += len(gt_sem)
         '''
-        if EPOCH_CNT < 180:
-            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='center')
-        else:
-            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='opt')
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='center')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        ap_calculator_center.step(batch_pred_map_cls, batch_gt_map_cls)
+
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='corner')
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator_corner.step(batch_pred_map_cls, batch_gt_map_cls)
+
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='plane')
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator_plane.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         '''
@@ -490,7 +499,16 @@ def evaluate_one_epoch():
     #for cls in ['x', 'y', 'z']:
     #    log_string("For plane class %s: %f"%(cls, correct_cls_angle_plane[cls] / float(total_cls_angle_plane[cls])))
     # Evaluate average precision
-    metrics_dict = ap_calculator.compute_metrics()
+    log_string('Using center')
+    metrics_dict = ap_calculator_center.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
+    log_string('Using corner')
+    metrics_dict = ap_calculator_corner.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
+    log_string('Using plane')
+    metrics_dict = ap_calculator_plane.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
 

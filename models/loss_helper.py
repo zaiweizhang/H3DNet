@@ -21,6 +21,8 @@ SIZE_THRESHOLD = 0.3
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 
+EPOCH_THRESH = 400
+
 def compute_potential_loss(model, end_points):
     gt_potential = end_points['gt_potential']
     pert_potential = end_points['pert_potential']
@@ -350,7 +352,7 @@ def compute_plane_loss(end_points, mode='x'):
     return off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
     #return angle_loss + sign_loss + res_loss + off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
     
-def compute_objcue_vote_loss(end_points):
+def compute_objcue_vote_loss(end_points, mode=''):
     """ Compute vote loss: Match predicted votes to GT votes.
 
     Args:
@@ -383,8 +385,8 @@ def compute_objcue_vote_loss(end_points):
     #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
     seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
     
-    vote_xyz_corner = end_points['vote_xyz_corner'] # B,num_seed*vote_factor,3
-    seed_gt_votes_corner = torch.gather(end_points['vote_label_corner'], 1, seed_inds_expand)
+    vote_xyz_corner = end_points['vote_xyz_corner'+mode] # B,num_seed*vote_factor,3
+    seed_gt_votes_corner = torch.gather(end_points['vote_label_corner'+mode], 1, seed_inds_expand)
     seed_gt_votes_corner += end_points['seed_xyz'].repeat(1,1,3)
 
     seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
@@ -674,8 +676,10 @@ def get_loss(inputs, end_points, config, net=None):
     
     # Compute support vote loss
     if True:#end_points['use_objcue']:
-        vote_loss_corner = compute_objcue_vote_loss(end_points)*10
-        end_points['vote_loss_corner'] = vote_loss_corner
+        vote_loss_corner1 = compute_objcue_vote_loss(end_points, mode='1')*10
+        vote_loss_corner2 = compute_objcue_vote_loss(end_points, mode='2')*10
+        end_points['vote_loss_corner1'] = vote_loss_corner1
+        end_points['vote_loss_corner2'] = vote_loss_corner2
         #sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
         #end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
@@ -749,12 +753,12 @@ def get_loss(inputs, end_points, config, net=None):
         loss_plane *= 10
         end_points['loss_plane'] = loss_plane
 
-        loss_plane_corner = compute_corner_plane_loss(end_points)
-        end_points['loss_plane_corner'] = loss_plane_corner*50
-        loss_plane_center = compute_center_plane_loss(end_points)
-        end_points['loss_plane_center'] = loss_plane_center*50
+        #loss_plane_corner = compute_corner_plane_loss(end_points)
+        #end_points['loss_plane_corner'] = loss_plane_corner*50
+        #loss_plane_center = compute_center_plane_loss(end_points)
+        #end_points['loss_plane_center'] = loss_plane_center*50
         
-        loss = loss_plane + vote_loss_corner + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
+        loss = (loss_plane) / 3.0 + (vote_loss_corner1 + vote_loss_corner2)/2.0 + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
         end_points['loss'] = loss
         #return loss, end_points
 
@@ -776,7 +780,32 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['neg_ratio'] = \
                               torch.sum(objectness_mask.float())/float(total_num_proposal) - end_points['pos_ratio']
 
+    objectness_losscorner, objectness_labelcorner, objectness_maskcorner, object_assignmentcorner = \
+                                                                                compute_objectness_loss(end_points, mode='corner')
+    end_points['objectness_loss'+'corner'] = objectness_losscorner
+    end_points['objectness_label'+'corner'] = objectness_labelcorner
+    end_points['objectness_mask'+'corner'] = objectness_maskcorner
+    end_points['object_assignment'+'corner'] = object_assignmentcorner
+    total_num_proposalcorner = objectness_labelcorner.shape[0]*objectness_labelcorner.shape[1]
+    end_points['pos_ratiocorner'] = \
+                              torch.sum(objectness_labelcorner.float().cuda())/float(total_num_proposalcorner)
+    end_points['neg_ratiocorner'] = \
+                              torch.sum(objectness_maskcorner.float())/float(total_num_proposalcorner) - end_points['pos_ratiocorner']
+
+    objectness_lossplane, objectness_labelplane, objectness_maskplane, object_assignmentplane = \
+                                                                                compute_objectness_loss(end_points, mode='plane')
+    end_points['objectness_loss'+'plane'] = objectness_lossplane
+    end_points['objectness_label'+'plane'] = objectness_labelplane
+    end_points['objectness_mask'+'plane'] = objectness_maskplane
+    end_points['object_assignment'+'plane'] = object_assignmentplane
+    total_num_proposalplane = objectness_labelplane.shape[0]*objectness_labelplane.shape[1]
+    end_points['pos_ratioplane'] = \
+                              torch.sum(objectness_labelplane.float().cuda())/float(total_num_proposalplane)
+    end_points['neg_ratioplane'] = \
+                              torch.sum(objectness_maskplane.float())/float(total_num_proposalplane) - end_points['pos_ratioplane']
+
     # Obj loss finetune
+    '''
     objectness_loss_opt, objectness_label_opt, objectness_mask_opt, object_assignment_opt = \
                                                                                 compute_objectness_loss(end_points, mode='opt')
     end_points['objectness_loss'+'opt'] = objectness_loss_opt
@@ -789,6 +818,7 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['neg_ratio_opt'] = \
                               torch.sum(objectness_mask_opt.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
     #objectness_reg_loss = compute_objectness_reg_loss(end_points)
+    '''
     
     # Box loss and sem cls loss
     center_loss, heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss = \
@@ -802,7 +832,30 @@ def get_loss(inputs, end_points, config, net=None):
     box_loss = center_loss + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     end_points['box_loss'] = box_loss
 
+    center_losscorner, heading_cls_losscorner, heading_reg_losscorner, size_cls_losscorner, size_reg_losscorner, sem_cls_losscorner = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='corner')
+    end_points['center_losscorner'] = center_losscorner
+    end_points['heading_cls_losscorner'] = heading_cls_losscorner
+    end_points['heading_reg_losscorner'] = heading_reg_losscorner
+    end_points['size_cls_losscorner'] = size_cls_losscorner
+    end_points['size_reg_losscorner'] = size_reg_losscorner
+    end_points['sem_cls_losscorner'] = sem_cls_losscorner
+    box_losscorner = center_losscorner + 0.1*heading_cls_losscorner + heading_reg_losscorner + 0.1*size_cls_losscorner + size_reg_losscorner
+    end_points['box_losscorner'] = box_losscorner
+
+    center_lossplane, heading_cls_lossplane, heading_reg_lossplane, size_cls_lossplane, size_reg_lossplane, sem_cls_lossplane = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='plane')
+    end_points['center_lossplane'] = center_lossplane
+    end_points['heading_cls_lossplane'] = heading_cls_lossplane
+    end_points['heading_reg_lossplane'] = heading_reg_lossplane
+    end_points['size_cls_lossplane'] = size_cls_lossplane
+    end_points['size_reg_lossplane'] = size_reg_lossplane
+    end_points['sem_cls_lossplane'] = sem_cls_lossplane
+    box_lossplane = center_lossplane + 0.1*heading_cls_lossplane + heading_reg_lossplane + 0.1*size_cls_lossplane + size_reg_lossplane
+    end_points['box_lossplane'] = box_lossplane
+
     # Box loss and sem cls loss finetune
+    '''
     center_loss_opt, heading_cls_loss_opt, heading_reg_loss_opt, size_cls_loss_opt, size_reg_loss_opt, sem_cls_loss_opt = \
         compute_box_and_sem_cls_loss(end_points, config, mode='opt')
     end_points['center_loss_opt'] = center_loss_opt
@@ -813,12 +866,14 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['sem_cls_loss_opt'] = sem_cls_loss_opt
     box_loss_opt = center_loss_opt + 0.1*heading_cls_loss_opt + heading_reg_loss_opt + 0.1*size_cls_loss_opt + size_reg_loss_opt
     end_points['box_loss_opt'] = box_loss_opt
+    '''
     
     # Final loss function
-    if inputs['epoch'] < 180:
-        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt
-    elif inputs['epoch'] < 250:
-        proposalloss = 0*vote_loss + 0*0.5*objectness_loss + 0*box_loss + 0*0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt# + objectness_reg_loss
+    if inputs['epoch'] < EPOCH_THRESH:
+        #proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt
+        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_losscorner + box_losscorner + 0.1*sem_cls_losscorner + 0.5*objectness_lossplane + box_lossplane + 0.1*sem_cls_lossplane
+    #elif inputs['epoch'] < EPOCH_THRESH+80:
+    #    proposalloss = 0*vote_loss + 0*0.5*objectness_loss + 0*box_loss + 0*0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt# + objectness_reg_loss
     else:
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
     proposalloss *= 10

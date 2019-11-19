@@ -169,7 +169,7 @@ class VotingPlaneModule(nn.Module):
         plane_features = torch.cat((z0_feature, z1_feature, y0_feature, y1_feature, x0_feature, x1_feature), 1)
         #vote_features = residual_features1 + residual_features2 + residual_features3
         
-        return newxyz, plane_features.contiguous().transpose(2,1), end_points#net_upper, net_lower, net_left, net_right, net_front, net_back#, vote_features
+        return newxyz, plane_features.transpose(2,1).contiguous(), end_points#net_upper, net_lower, net_left, net_right, net_front, net_back#, vote_features
     
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()
