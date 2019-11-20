@@ -28,7 +28,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     objectness_scores = net_transposed[:,:,0:2]
     end_points['objectness_scores'+mode] = objectness_scores
     
-    base_xyz = end_points['aggregated_vote_xyz'] # (batch_size, num_proposal, 3)
+    base_xyz = end_points['aggregated_vote_xyz'+mode] # (batch_size, num_proposal, 3)
     center = base_xyz + net_transposed[:,:,start:start+3] # (batch_size, num_proposal, 3)
     end_points['center'+mode] = center
 
@@ -93,7 +93,7 @@ class ProposalModule(nn.Module):
         self.vote_aggregation_corner = PointnetSAModuleVotes( 
                 npoint=self.num_proposal*2,
                 radius=0.3,
-                nsample=16,
+                nsample=16*2,
                 mlp=[self.seed_feat_dim, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True
@@ -103,7 +103,7 @@ class ProposalModule(nn.Module):
         self.vote_aggregation_plane = PointnetSAModuleVotes( 
                 npoint=self.num_proposal*6,
                 radius=0.3,
-                nsample=16,
+                nsample=16*6,
                 mlp=[self.seed_feat_dim, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True
@@ -112,8 +112,8 @@ class ProposalModule(nn.Module):
         self.vote_aggregation_comb = PointnetSAModuleVotes( 
                 npoint=self.num_proposal*9,
                 radius=0.3,
-                nsample=16,
-                mlp=[self.seed_feat_dim, 128, 128, 128],
+                nsample=16*4,
+                mlp=[self.seed_feat_dim+1+3, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True
             )
@@ -184,31 +184,38 @@ class ProposalModule(nn.Module):
             net = F.relu(self.bn2(self.conv2(net))) 
             net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
             
-            end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode=mode)
+            end_points = decode_scores(net, endpoints, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode=mode)
             return end_points
         """
         if self.sampling == 'vote_fps':
-            # Farthest point sampling (FPS) on votes
             '''
-            xyz_flipped = xyz.transpose(1, 2).contiguous()
+            # Farthest point sampling (FPS) on votes
             inds = pointnet2_utils.furthest_point_sample(xyz, self.num_proposal)
             sample_inds = inds
             
             sample_inds_comb = torch.cat((sample_inds, sample_inds+1024, sample_inds+1024*2, sample_inds+1024*3, sample_inds+1024*4, sample_inds+1024*5, sample_inds+1024*6, sample_inds+1024*7, sample_inds+1024*8), 1)
             xyz_comb = torch.cat((xyz, xyz_corner, xyz_plane), 1)
-            features_comb = torch.cat((features, features_corner, features_plane), 2)
+            center_sel = (torch.ones((features.shape[0], 1, features.shape[2])) * 0.1).cuda()
+            corner_sel = (torch.ones((features_corner.shape[0], 1, features_corner.shape[2])) * 0.2).cuda()
+            plane_sel = (torch.ones((features_plane.shape[0], 1, features_plane.shape[2])) * 0.3).cuda()
 
+            num_point = features.shape[2]
+            xyz_corner_center = torch.cat([(xyz_corner[:,:num_point,:] + xyz_corner[:,num_point:2*num_point,:]) / 2.0]*2, 1).transpose(2,1).contiguous()
+            xyz_plane_center = torch.cat([torch.stack(((xyz_plane[:,4*num_point:5*num_point,0]+xyz_plane[:,5*num_point:,0]) / 2.0, (xyz_plane[:,2*num_point:3*num_point,1]+xyz_plane[:,3*num_point:4*num_point,1]) / 2.0, (xyz_plane[:,:num_point,2]+xyz_plane[:,num_point:2*num_point,2]) / 2.0), -1)]*6, 1).transpose(2,1).contiguous()
+            
+            features_comb = torch.cat((torch.cat((center_sel, xyz.transpose(2,1).contiguous(), features), 1), torch.cat((corner_sel, xyz_corner_center, features_corner), 1), torch.cat((plane_sel, xyz_plane_center, features_plane), 1)), 2)
+            
             xyz_comb, features_comb, fps_inds_comb = self.vote_aggregation_comb(xyz_comb, features_comb, inds=sample_inds_comb)
             xyz = xyz_comb[:,:self.num_proposal,:]
             features = features_comb[:,:,:self.num_proposal]
             
             #sample_inds_corner = fps_inds_corner
-            features_corner = torch.cat((features_corner[:,:,self.num_proposal:2*self.num_proposal], features_corner[:,:,2*self.num_proposal:3*self.num_proposal]), 1)
-            xyz_corner = (xyz_corner[:,self.num_proposal:2*self.num_proposal,:] + xyz_corner[:,2*self.num_proposal:3*self.num_proposal,:]) / 2.0
+            features_corner = torch.cat((features_comb[:,:,self.num_proposal:2*self.num_proposal], features_comb[:,:,2*self.num_proposal:3*self.num_proposal]), 1)
+            xyz_corner = (xyz_comb[:,self.num_proposal:2*self.num_proposal,:] + xyz_comb[:,2*self.num_proposal:3*self.num_proposal,:]) / 2.0
 
             features_plane = torch.cat((features_comb[:,:,3*self.num_proposal:4*self.num_proposal], features_comb[:,:,4*self.num_proposal:5*self.num_proposal], features_comb[:,:,5*self.num_proposal:6*self.num_proposal], features_comb[:,:,6*self.num_proposal:7*self.num_proposal], features_comb[:,:,7*self.num_proposal:8*self.num_proposal], features_comb[:,:,8*self.num_proposal:]), 1)
             xyz_plane = xyz_comb[:,3*self.num_proposal:,:]
-            xyz_plane = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,2]+xyz_plane[:,5*self.num_proposal:,2]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,2]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,2]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
+            xyz_plane = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,0]+xyz_plane[:,5*self.num_proposal:,0]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,1]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,1]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
             '''
             # Farthest point sampling (FPS) on votes
             features_center = features
@@ -224,7 +231,8 @@ class ProposalModule(nn.Module):
             sample_inds_plane = torch.cat((sample_inds, sample_inds+1024, sample_inds+1024*2, sample_inds+1024*3, sample_inds+1024*4, sample_inds+1024*5), 1)
             xyz_plane, features_plane, fps_inds_plane = self.vote_aggregation_plane(xyz_plane, features_plane, inds=sample_inds_plane)
             features_plane = torch.cat((features_plane[:,:,:self.num_proposal], features_plane[:,:,self.num_proposal:2*self.num_proposal], features_plane[:,:,2*self.num_proposal:3*self.num_proposal], features_plane[:,:,3*self.num_proposal:4*self.num_proposal], features_plane[:,:,4*self.num_proposal:5*self.num_proposal], features_plane[:,:,5*self.num_proposal:]), 1)
-            xyz_plane = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,2]+xyz_plane[:,5*self.num_proposal:,2]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,2]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,2]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
+            xyz_plane = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,0]+xyz_plane[:,5*self.num_proposal:,0]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,1]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,1]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
+            
             #sample_inds_plane = fps_inds_plane
             #features = torch.cat((features, features_corner, features_plane), 1)
         elif self.sampling == 'seed_fps': 
@@ -240,8 +248,14 @@ class ProposalModule(nn.Module):
         else:
             log_string('Unknown sampling strategy: %s. Exiting!'%(self.sampling))
             exit()
-        end_points['aggregated_vote_xyz'] = xyz # (batch_size, num_proposal, 3)
+        end_points['aggregated_vote_xyzcenter'] = xyz # (batch_size, num_proposal, 3)
         end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
+
+        end_points['aggregated_vote_xyzcorner'] = xyz_corner # (batch_size, num_proposal, 3)
+        #end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
+
+        end_points['aggregated_vote_xyzplane'] = xyz_plane # (batch_size, num_proposal, 3)
+        #end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
 
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 

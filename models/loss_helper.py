@@ -416,7 +416,7 @@ def compute_objectness_loss(end_points, mode=''):
             within [0,num_gt_object-1]
     """ 
     # Associate proposal and GT objects by point-to-point distances
-    aggregated_vote_xyz = end_points['aggregated_vote_xyz'] ### Vote xyz is the same for all
+    aggregated_vote_xyz = end_points['aggregated_vote_xyz'+mode] ### Vote xyz is the same for all
     gt_center = end_points['center_label'][:,:,0:3]
     B = gt_center.shape[0]
     K = aggregated_vote_xyz.shape[1]
