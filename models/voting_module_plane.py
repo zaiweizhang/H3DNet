@@ -112,8 +112,11 @@ class VotingPlaneModule(nn.Module):
         end_points['z_sign'] = self.conv_upper3_sign(net_upper)
         upper_off0 = self.conv_upper3_off0(net_upper)
         upper_off1 = self.conv_upper3_off1(net_upper)
-        end_points['z_off0'] = upper_off0[:,0,:]
-        end_points['z_off1'] = upper_off1[:,0,:]
+        #end_points['z_off0'] = upper_off0[:,0,:]
+        #end_points['z_off1'] = upper_off1[:,0,:]
+        ### Try relative here
+        end_points['z_off0'] = -(upper_off0[:,0,:]+seed_xyz[:,:,2])
+        end_points['z_off1'] = -(upper_off1[:,0,:]+seed_xyz[:,:,2])
         z0_feature = upper_off0.contiguous().transpose(2,1)[:,:,1:]
         z1_feature = upper_off1.contiguous().transpose(2,1)[:,:,1:]
         #end_points['z_d0'] = seed_xyz[:,:,-1] + upper_off.contiguous().transpose(2,1)[:,:,0]
@@ -129,8 +132,11 @@ class VotingPlaneModule(nn.Module):
         end_points['y_sign'] = self.conv_front3_sign(net_front)
         front_off0 = self.conv_front3_off0(net_front)
         front_off1 = self.conv_front3_off1(net_front)
-        end_points['y_off0'] = front_off0[:,0,:]
-        end_points['y_off1'] = front_off1[:,0,:]
+        #end_points['y_off0'] = front_off0[:,0,:]
+        #end_points['y_off1'] = front_off1[:,0,:]
+        ### Try relative here
+        end_points['y_off0'] = -(front_off0[:,0,:]+seed_xyz[:,:,1])
+        end_points['y_off1'] = -(front_off1[:,0,:]+seed_xyz[:,:,1])
         y0_feature = front_off0.contiguous().transpose(2,1)[:,:,1:]
         y1_feature = front_off1.contiguous().transpose(2,1)[:,:,1:]
         #end_points['y_d0'] = seed_xyz[:,:,-1] + front_off.contiguous().transpose(2,1)[:,:,0]
@@ -147,8 +153,11 @@ class VotingPlaneModule(nn.Module):
         end_points['x_sign'] = self.conv_left3_sign(net_left)
         left_off0 = self.conv_left3_off0(net_left)
         left_off1 = self.conv_left3_off1(net_left)
-        end_points['x_off0'] = left_off0[:,0,:]
-        end_points['x_off1'] = left_off1[:,0,:]
+        #end_points['x_off0'] = left_off0[:,0,:]
+        #end_points['x_off1'] = left_off1[:,0,:]
+        ### Try relative here
+        end_points['x_off0'] = -(left_off0[:,0,:]+seed_xyz[:,:,0])
+        end_points['x_off1'] = -(left_off1[:,0,:]+seed_xyz[:,:,0])
         #end_points['x_d0'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,0]
         #end_points['x_d1'] = seed_xyz[:,:,-1] + left_off.contiguous().transpose(2,1)[:,:,1]
         x0_feature = left_off0.contiguous().transpose(2,1)[:,:,1:]
@@ -158,12 +167,12 @@ class VotingPlaneModule(nn.Module):
         #residual_features1 = net_upper_lower[:,5:,:] # (batch_size, num_seed, vote_factor, out_dim)
         #residual_features2 = net_front_back[:,5:,:]
         #residual_features3 = net_left_right[:,5:,:]
-        xyz_upper0 = torch.cat((seed_xyz[:,:,:2], -upper_off0[:,0,:].unsqueeze(-1)), 2)
-        xyz_upper1 = torch.cat((seed_xyz[:,:,:2], -upper_off1[:,0,:].unsqueeze(-1)), 2)
-        xyz_front0 = torch.stack((seed_xyz[:,:,0], -front_off0[:,0,:], seed_xyz[:,:,2]), 2)
-        xyz_front1 = torch.stack((seed_xyz[:,:,0], -front_off1[:,0,:], seed_xyz[:,:,2]), 2)
-        xyz_left0 = torch.stack((-left_off0[:,0,:], seed_xyz[:,:,1], seed_xyz[:,:,2]), 2)
-        xyz_left1 = torch.stack((-left_off1[:,0,:], seed_xyz[:,:,1], seed_xyz[:,:,2]), 2)
+        xyz_upper0 = torch.cat((seed_xyz[:,:,:2], -end_points['z_off0'].unsqueeze(-1)), 2)
+        xyz_upper1 = torch.cat((seed_xyz[:,:,:2], -end_points['z_off1'].unsqueeze(-1)), 2)
+        xyz_front0 = torch.stack((seed_xyz[:,:,0], -end_points['y_off0'], seed_xyz[:,:,2]), 2)
+        xyz_front1 = torch.stack((seed_xyz[:,:,0], -end_points['y_off1'], seed_xyz[:,:,2]), 2)
+        xyz_left0 = torch.stack((-end_points['x_off0'], seed_xyz[:,:,1], seed_xyz[:,:,2]), 2)
+        xyz_left1 = torch.stack((-end_points['x_off1'], seed_xyz[:,:,1], seed_xyz[:,:,2]), 2)
 
         newxyz = torch.cat((xyz_upper0, xyz_upper1, xyz_front0, xyz_front1, xyz_left0, xyz_left1), 1)
         plane_features = torch.cat((z0_feature, z1_feature, y0_feature, y1_feature, x0_feature, x1_feature), 1)

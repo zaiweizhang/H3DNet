@@ -387,6 +387,8 @@ class ScannetDetectionDataset(Dataset):
                             ### May need to change later
                             #plane_vertices[ind[temp_ind],:4] = plane_vertices[ind[temp_ind],:4] / np.linalg.norm(plane_vertices[ind[temp_ind][0],:3])
                 if len(plane_ind) > 0:
+                    planes_org = plane_ind
+                    
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
                     #plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4]# / np.linalg.norm(plane_vertices[plane_ind[0],:], -1)
@@ -403,7 +405,7 @@ class ScannetDetectionDataset(Dataset):
                         print ("error with upright")
                     if check_z(plane_upper, para_points) == False:
                         import pdb;pdb.set_trace()
-
+                        
                     #plane_left_temp = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
                     v1 = corners[3] - corners[2]
                     v2 = corners[2] - corners[0]
@@ -463,6 +465,22 @@ class ScannetDetectionDataset(Dataset):
                     plane_votes_back[plane_ind,:] = plane_back
                     plane_votes_left[plane_ind,:] = plane_left
                     plane_votes_right[plane_ind,:] = plane_right
+
+                    '''
+                    for plane in planes_org:
+                        plane_equ = plane_vertices[plane[0],:4]
+                        sel_idx = np.argmax(np.abs(plane_equ[:3]))
+                        if sel_idx == 0:
+                            plane_mask_left[plane] = 1.0
+                            plane_mask_right[plane] = 1.0
+                        elif sel_idx == 1:
+                            plane_mask_front[plane] = 1.0
+                            plane_mask_back[plane] = 1.0
+                        else:
+                            plane_mask_upper[plane] = 1.0
+                            plane_mask_lower[plane] = 1.0
+                        import pdb;pdb.set_trace()
+                    '''
                     #import pdb;pdb.set_trace()
                     '''
                     xyz = np.array([corners[2], corners[3], corners[6], corners[7]])
