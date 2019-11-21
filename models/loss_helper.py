@@ -17,6 +17,7 @@ FAR_THRESHOLD = 0.6
 NEAR_THRESHOLD = 0.3
 
 SIZE_THRESHOLD = 0.3
+SIZE_FAR_THRESHOLD = 0.6
 
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
@@ -423,24 +424,40 @@ def compute_objectness_loss(end_points, mode=''):
     K2 = gt_center.shape[1]
     dist1, ind1, dist2, _ = nn_distance(aggregated_vote_xyz, gt_center) # dist1: BxK, dist2: BxK2
 
+    # Set assignment
+    object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
+    
     # Generate objectness label and mask
     # objectness_label: 1 if pred object center is within NEAR_THRESHOLD of any GT object
     # objectness_mask: 0 if pred object center is in gray zone (DONOTCARE), 1 otherwise
     euclidean_dist1 = torch.sqrt(dist1+1e-6)
     objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
     objectness_mask = torch.zeros((B,K)).cuda()
-    objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
-    objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
-    objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+
+    if mode == 'corner':
+        size_gt = end_points['gt_bbox'][:, :, 3:6]
+        size_assign = torch.gather(size_gt, 1, (object_assignment[:, :, None].repeat(1, 1, 3)))
+        
+        size_init_pps = end_points['aggregated_vote_xyz'+mode+'size']
+        
+        size_dist = torch.norm((size_init_pps / size_assign - 1), dim=2)
+
+        objectness_label[(euclidean_dist1<NEAR_THRESHOLD) & \
+                         (size_dist < SIZE_THRESHOLD)] = 1
+        objectness_mask[(euclidean_dist1<NEAR_THRESHOLD) & \
+                         (size_dist < SIZE_THRESHOLD)] = 1
+        objectness_mask[(euclidean_dist1>FAR_THRESHOLD) & \
+                         (size_dist > SIZE_FAR_THRESHOLD)] = 1
+    else:
+        objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
+        objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
+        objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
 
     # Compute objectness loss
     objectness_scores = end_points['objectness_scores'+mode]
     criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
     objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
     objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
-
-    # Set assignment
-    object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
 
     return objectness_loss, objectness_label, objectness_mask, object_assignment
 

@@ -39,6 +39,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     end_points['heading_residuals'+mode] = heading_residuals_normalized * (np.pi/num_heading_bin) # Bxnum_proposalxnum_heading_bin
 
     if False:#mode == 'corner':
+        import pdb;pdb.set_trace()
         size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
         end_points['size_scores'+mode] = size_scores
@@ -226,12 +227,12 @@ class ProposalModule(nn.Module):
             xyz_corner, features_corner, fps_inds_corner = self.vote_aggregation_corner(xyz_corner, features_corner, inds=sample_inds_corner)
             #sample_inds_corner = fps_inds_corner
             features_corner = torch.cat((features_corner[:,:,:self.num_proposal], features_corner[:,:,self.num_proposal:]), 1)
-            xyz_corner = (xyz_corner[:,:self.num_proposal,:] + xyz_corner[:,self.num_proposal:,:]) / 2.0
+            xyz_corner_center = (xyz_corner[:,:self.num_proposal,:] + xyz_corner[:,self.num_proposal:,:]) / 2.0
             
             sample_inds_plane = torch.cat((sample_inds, sample_inds+1024, sample_inds+1024*2, sample_inds+1024*3, sample_inds+1024*4, sample_inds+1024*5), 1)
             xyz_plane, features_plane, fps_inds_plane = self.vote_aggregation_plane(xyz_plane, features_plane, inds=sample_inds_plane)
             features_plane = torch.cat((features_plane[:,:,:self.num_proposal], features_plane[:,:,self.num_proposal:2*self.num_proposal], features_plane[:,:,2*self.num_proposal:3*self.num_proposal], features_plane[:,:,3*self.num_proposal:4*self.num_proposal], features_plane[:,:,4*self.num_proposal:5*self.num_proposal], features_plane[:,:,5*self.num_proposal:]), 1)
-            xyz_plane = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,0]+xyz_plane[:,5*self.num_proposal:,0]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,1]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,1]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
+            xyz_plane_center = torch.stack(((xyz_plane[:,4*self.num_proposal:5*self.num_proposal,0]+xyz_plane[:,5*self.num_proposal:,0]) / 2.0, (xyz_plane[:,2*self.num_proposal:3*self.num_proposal,1]+xyz_plane[:,3*self.num_proposal:4*self.num_proposal,1]) / 2.0, (xyz_plane[:,:self.num_proposal,2]+xyz_plane[:,self.num_proposal:2*self.num_proposal,2]) / 2.0), -1)
             
             #sample_inds_plane = fps_inds_plane
             #features = torch.cat((features, features_corner, features_plane), 1)
@@ -251,10 +252,11 @@ class ProposalModule(nn.Module):
         end_points['aggregated_vote_xyzcenter'] = xyz # (batch_size, num_proposal, 3)
         end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
 
-        end_points['aggregated_vote_xyzcorner'] = xyz_corner # (batch_size, num_proposal, 3)
+        end_points['aggregated_vote_xyzcorner'] = xyz_corner_center # (batch_size, num_proposal, 3)
+        end_points['aggregated_vote_xyzcornersize'] = xyz_corner[:,self.num_proposal:,:] - xyz_corner[:,:self.num_proposal,:] # (batch_size, num_proposal, 3)
         #end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
 
-        end_points['aggregated_vote_xyzplane'] = xyz_plane # (batch_size, num_proposal, 3)
+        end_points['aggregated_vote_xyzplane'] = xyz_plane_center # (batch_size, num_proposal, 3)
         #end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
 
         # --------- PROPOSAL GENERATION ---------

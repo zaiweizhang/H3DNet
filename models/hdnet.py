@@ -112,16 +112,16 @@ class HDNet(nn.Module):
         # Hough voting
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
-        self.vgen = VotingModule(self.vote_factor, 128*3)
-        self.vgen_corner = VotingCornerModule(self.vote_factor, 128*3)
+        self.vgen = VotingModule(self.vote_factor, 128)
+        self.vgen_corner = VotingCornerModule(self.vote_factor, 128)
         #self.vgen_corner = VotingPointModule(self.vote_factor, 256)
-        self.vgen_plane = VotingPlaneModule(self.vote_factor, 128*3)
+        self.vgen_plane = VotingPlaneModule(self.vote_factor, 128)
         #self.vgen = MeanShiftModule(self.vote_factor, 256)    
         self.vgen_voxel = TwoStreamNetDecoder()
 
         # Vote aggregation and detection
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-                                   mean_size_arr, num_proposal, sampling, seed_feat_dim=128*3)
+                                   mean_size_arr, num_proposal, sampling, seed_feat_dim=128)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -177,12 +177,12 @@ class HDNet(nn.Module):
         #end_points['seed_xyz'+'sem'] = xyz_sem
         #end_points['seed_features'+'sem'] = features_sem
 
-        features_combine_center = torch.cat((features, features_corner, features_plane), 1)
-        features_combine_corner = torch.cat((features, features_corner, features_plane), 1)
-        features_combine_plane = torch.cat((features, features_corner, features_plane), 1)
-        #features_combine_center = features
-        #features_combine_corner = features_corner
-        #features_combine_plane = features_plane
+        #features_combine_center = torch.cat((features, features_corner, features_plane), 1)
+        #features_combine_corner = torch.cat((features, features_corner, features_plane), 1)
+        #features_combine_plane = torch.cat((features, features_corner, features_plane), 1)
+        features_combine_center = features
+        features_combine_corner = features_corner
+        features_combine_plane = features_plane
         
         #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
         #features_combine_point = torch.cat((features, features_plane, features_vox), 1)
