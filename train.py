@@ -206,6 +206,7 @@ it = -1 # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
 start_epoch = 0
 if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     checkpoint = torch.load(CHECKPOINT_PATH)
+    '''
     # 1. filter out unnecessary keys
     model_dict = net.state_dict()
     pretrained_dict = checkpoint['model_state_dict']
@@ -213,7 +214,8 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     # 2. overwrite entries in the existing state dict
     model_dict.update(pretrained_dict)
     net.load_state_dict(model_dict)
-    #net.load_state_dict(checkpoint['model_state_dict'])
+    '''
+    net.load_state_dict(checkpoint['model_state_dict'])
     #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch']
     log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
@@ -424,8 +426,8 @@ def evaluate_one_epoch():
                 continue
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
-        if FLAGS.get_data == True:
-            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TEST_DATASET)
+        #if FLAGS.get_data == True:
+        #    dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TEST_DATASET)
         loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
 
         # Accumulate statistics and print out
@@ -484,13 +486,15 @@ def evaluate_one_epoch():
         ap_calculator_plane.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
-        '''
-        if FLAGS.dump_results and batch_idx == 0:# and EPOCH_CNT %10 == 0:
-            if FLAGS.use_plane:
-                dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
-            else:
-                dump_results(end_points, DUMP_DIR, DATASET_CONFIG)
-        '''
+        if FLAGS.dump_results:# and EPOCH_CNT %10 == 0:
+            #if FLAGS.use_plane:
+            #    dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
+            #else:
+            #dump_results(end_points, DUMP_DIR, DATASET_CONFIG)
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='center')
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
+            
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)

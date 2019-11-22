@@ -121,7 +121,7 @@ def parse_predictions(end_points, config_dict, mode='opt'):
                 config_dict['nms_iou'], config_dict['use_old_type_nms'])
             assert(len(pick)>0)
             pred_mask[i, nonempty_box_inds[pick]] = 1
-        end_points['pred_mask'] = pred_mask
+        end_points['pred_mask'+mode] = pred_mask
         # ---------- NMS output: pred_mask in (B,K) -----------
     elif config_dict['use_3d_nms'] and (not config_dict['cls_nms']):
         # ---------- NMS input: pred_with_prob in (B,K,7) -----------
@@ -141,7 +141,7 @@ def parse_predictions(end_points, config_dict, mode='opt'):
                 config_dict['nms_iou'], config_dict['use_old_type_nms'])
             assert(len(pick)>0)
             pred_mask[i, nonempty_box_inds[pick]] = 1
-        end_points['pred_mask'] = pred_mask
+        end_points['pred_mask'+mode] = pred_mask
         # ---------- NMS output: pred_mask in (B,K) -----------
     elif config_dict['use_3d_nms'] and config_dict['cls_nms']:
         # ---------- NMS input: pred_with_prob in (B,K,8) -----------
@@ -162,7 +162,7 @@ def parse_predictions(end_points, config_dict, mode='opt'):
                 config_dict['nms_iou'], config_dict['use_old_type_nms'])
             assert(len(pick)>0)
             pred_mask[i, nonempty_box_inds[pick]] = 1
-        end_points['pred_mask'] = pred_mask
+        end_points['pred_mask'+mode] = pred_mask
         # ---------- NMS output: pred_mask in (B,K) -----------
 
     batch_pred_map_cls = [] # a list (len: batch_size) of list (len: num of predictions per sample) of tuples of pred_cls, pred_box and conf (0-1)

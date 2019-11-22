@@ -16,7 +16,7 @@ from nn_distance import nn_distance, huber_loss
 FAR_THRESHOLD = 0.6
 NEAR_THRESHOLD = 0.3
 
-SIZE_THRESHOLD = 0.3
+SIZE_THRESHOLD = 0.4
 SIZE_FAR_THRESHOLD = 0.6
 
 GT_VOTE_FACTOR = 3 # number of GT votes per point
@@ -434,7 +434,7 @@ def compute_objectness_loss(end_points, mode=''):
     objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
     objectness_mask = torch.zeros((B,K)).cuda()
 
-    if mode == 'corner':
+    if False:#mode == 'corner':
         size_gt = end_points['gt_bbox'][:, :, 3:6]
         size_assign = torch.gather(size_gt, 1, (object_assignment[:, :, None].repeat(1, 1, 3)))
         

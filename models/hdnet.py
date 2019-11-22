@@ -228,7 +228,7 @@ class HDNet(nn.Module):
         end_points['vote_xyz_corner2'] = voted_xyz_corner2
         end_points['vote_xyz_corner2_feature'] = voted_xyz_corner2_feature
 
-        voted_xyz_corner = torch.cat((voted_xyz_corner1, voted_xyz_corner2), 1)
+        voted_xyz_corner = torch.cat((voted_xyz_corner1, voted_xyz_corner2), 1)        
         voted_xyz_corner_feature = torch.cat((voted_xyz_corner1_feature, voted_xyz_corner2_feature), 2)
         
         end_points = self.vgen_voxel(features_combine_vox, end_points, inputs)
