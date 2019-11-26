@@ -216,6 +216,17 @@ def compute_corner_plane_loss(end_points):
     reg_loss = torch.sum(reg_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
     return reg_loss
 
+def compute_corner_center_loss(end_points):
+
+    vote_center = end_points['vote_xyz']
+    vote_corner_center = end_points['vote_xyz_corner_center']
+
+    reg_dist = torch.abs(vote_center - vote_corner_center)
+
+    #reg_loss = torch.sum(reg_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    reg_loss = torch.mean(reg_dist)
+    return reg_loss
+
 def compute_center_plane_loss(end_points):
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'].shape[0]
@@ -402,6 +413,135 @@ def compute_objcue_vote_loss(end_points, mode=''):
     vote_loss_corner = torch.sum(votes_dist_corner*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
 
     return vote_loss_corner
+
+def compute_cueness_loss_nndistance(end_points, mode=''):
+    """ Compute objectness loss for the proposals.
+
+    Args:
+        end_points: dict (read-only)
+
+    Returns:
+        objectness_loss: scalar Tensor
+        objectness_label: (batch_size, num_seed) Tensor with value 0 or 1
+        objectness_mask: (batch_size, num_seed) Tensor with value 0 or 1
+        object_assignment: (batch_size, num_seed) Tensor with long int
+            within [0,num_gt_object-1]
+    """
+
+    # Load ground truth votes and assign them to seed points
+    batch_size = end_points['seed_xyz'].shape[0]
+    num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
+    seed_inds = end_points['seed_inds'].long() # B,num_seed in [0,num_points-1]
+
+    # Get groundtruth votes for the seed points
+    # vote_label_mask: Use gather to select B,num_seed from B,num_point
+    #   non-object point has no GT vote mask = 0, object point has mask = 1
+    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
+    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
+
+    if mode=='center':
+        vote_xyz = end_points['vote_xyz'] # B,num_seed*vote_factor,3
+    else:
+        vote_xyz = end_points['vote_xyz_corner_center'] # B,num_seed*vote_factor,3
+
+    gt_center = end_points['center_label'][:,:,0:3]
+    B = gt_center.shape[0]
+    K = vote_xyz.shape[1]
+    K2 = gt_center.shape[1]
+    dist1, ind1, dist2, _ = nn_distance(vote_xyz, gt_center) # dist1: BxK, dist2: BxK2
+
+    # Set assignment
+    object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
+    
+    # Generate objectness label and mask
+    # objectness_label: 1 if pred object center is within NEAR_THRESHOLD of any GT object
+    # objectness_mask: 0 if pred object center is in gray zone (DONOTCARE), 1 otherwise
+    euclidean_dist1 = torch.sqrt(dist1+1e-6)
+    objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
+    objectness_mask = torch.zeros((B,K)).cuda()
+
+    euclidean_dist1 = torch.sqrt(dist1+1e-6)
+    objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
+    objectness_mask = torch.zeros((B,K)).cuda()
+
+    objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
+    objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
+    objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+
+    # Compute objectness loss
+    objectness_scores = end_points['cueness_scores'+mode]
+    criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
+    objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
+    objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
+
+    return objectness_loss, objectness_label, objectness_mask#, object_assignment
+
+def compute_cueness_loss(end_points, mode=''):
+    """ Compute objectness loss for the proposals.
+
+    Args:
+        end_points: dict (read-only)
+
+    Returns:
+        objectness_loss: scalar Tensor
+        objectness_label: (batch_size, num_seed) Tensor with value 0 or 1
+        objectness_mask: (batch_size, num_seed) Tensor with value 0 or 1
+        object_assignment: (batch_size, num_seed) Tensor with long int
+            within [0,num_gt_object-1]
+    """
+
+    # Load ground truth votes and assign them to seed points
+    batch_size = end_points['seed_xyz'].shape[0]
+    num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
+    seed_inds = end_points['seed_inds'].long() # B,num_seed in [0,num_points-1]
+
+    seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
+    # Get groundtruth votes for the seed points
+    # vote_label_mask: Use gather to select B,num_seed from B,num_point
+    #   non-object point has no GT vote mask = 0, object point has mask = 1
+    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
+    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
+
+    if mode=='center':
+        vote_xyz = end_points['vote_xyz'] # B,num_seed*vote_factor,3
+    else:
+        vote_xyz = end_points['vote_xyz_corner_center'] # B,num_seed*vote_factor,3
+
+    seed_gt_votes = torch.gather(end_points['vote_label'], 1, seed_inds_expand)
+    gt_votes = end_points['seed_xyz'] + seed_gt_votes[:,:,:3]
+
+    B = gt_votes.shape[0]
+    K = gt_votes.shape[1]
+    
+    diff = vote_xyz - gt_votes
+    dist = torch.sum(diff**2, dim=-1)
+    #dist1, ind1, dist2, _ = nn_distance(vote_xyz, gt_center) # dist1: BxK, dist2: BxK2
+
+    # Set assignment
+    #object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
+    
+    # Generate objectness label and mask
+    # objectness_label: 1 if pred object center is within NEAR_THRESHOLD of any GT object
+    # objectness_mask: 0 if pred object center is in gray zone (DONOTCARE), 1 otherwise
+
+    euclidean_dist = torch.sqrt(dist+1e-6)
+    objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
+    objectness_mask = torch.zeros((B,K)).cuda()
+
+    objectness_label[euclidean_dist<NEAR_THRESHOLD] = 1    
+    objectness_mask[euclidean_dist<NEAR_THRESHOLD] = 1
+    objectness_mask[euclidean_dist>FAR_THRESHOLD] = 1
+    objectness_mask = objectness_mask.float() * seed_gt_votes_mask.float()
+    
+    # Compute objectness loss
+    objectness_scores = end_points['cueness_scores'+mode]
+    criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
+    objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
+    objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
+
+    return objectness_loss, objectness_label, objectness_mask#, object_assignment
 
 def compute_objectness_loss(end_points, mode=''):
     """ Compute objectness loss for the proposals.
@@ -697,6 +837,10 @@ def get_loss(inputs, end_points, config, net=None):
         vote_loss_corner2 = compute_objcue_vote_loss(end_points, mode='2')*10
         end_points['vote_loss_corner1'] = vote_loss_corner1
         end_points['vote_loss_corner2'] = vote_loss_corner2
+        corner_cueloss, corner_cuelabel, corner_cuemask = compute_cueness_loss(end_points, mode='corner')
+        corner_cueloss *= 10
+        end_points['vote_loss_corner_cue'] = corner_cueloss
+        end_points['corner_cue'] = corner_cuelabel
         #sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
         #end_points['sem_loss'] = sem_loss
         ## get the voxel loss here
@@ -774,8 +918,10 @@ def get_loss(inputs, end_points, config, net=None):
         #end_points['loss_plane_corner'] = loss_plane_corner*50
         #loss_plane_center = compute_center_plane_loss(end_points)
         #end_points['loss_plane_center'] = loss_plane_center*50
-        
-        loss = (loss_plane) / 3.0 + (vote_loss_corner1 + vote_loss_corner2)/2.0 + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
+
+        corner_reg = compute_corner_center_loss(end_points)*50
+        end_points["corner_reg_loss"] = corner_reg
+        loss = (loss_plane) / 3.0 + (vote_loss_corner1 + vote_loss_corner2)/2.0 + corner_cueloss + 0*corner_reg + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
         end_points['loss'] = loss
         #return loss, end_points
 
@@ -783,7 +929,12 @@ def get_loss(inputs, end_points, config, net=None):
     # Vote loss
     vote_loss = compute_vote_loss(end_points)
     end_points['vote_loss'] = vote_loss
-        
+
+    center_cueloss, center_cuelabel, center_cuemask = compute_cueness_loss(end_points, mode='center')
+    #center_cueloss *= 10
+    end_points['vote_loss_center_cue'] = center_cueloss
+    end_points['center_cue'] = corner_cuelabel
+    
     # Obj loss
     objectness_loss, objectness_label, objectness_mask, object_assignment = \
                                                                                 compute_objectness_loss(end_points, mode='center')
@@ -888,11 +1039,11 @@ def get_loss(inputs, end_points, config, net=None):
     # Final loss function
     if inputs['epoch'] < EPOCH_THRESH:
         #proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt
-        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_losscorner + box_losscorner + 0.1*sem_cls_losscorner + 0.5*objectness_lossplane + box_lossplane + 0.1*sem_cls_lossplane
+        proposalloss = vote_loss + center_cueloss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_losscorner + box_losscorner + 0.1*sem_cls_losscorner + 0.5*objectness_lossplane + box_lossplane + 0.1*sem_cls_lossplane
     #elif inputs['epoch'] < EPOCH_THRESH+80:
     #    proposalloss = 0*vote_loss + 0*0.5*objectness_loss + 0*box_loss + 0*0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt# + objectness_reg_loss
     else:
-        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
+        proposalloss = vote_loss + center_cueloss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
     proposalloss *= 10
     loss += proposalloss
     end_points['init_proposal_loss'] = proposalloss

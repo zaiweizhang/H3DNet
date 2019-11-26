@@ -31,7 +31,7 @@ class VotingModule(nn.Module):
         self.out_dim = self.in_dim # due to residual feature, in_dim has to be == out_dim
         self.conv1 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
-        self.conv3 = torch.nn.Conv1d(self.in_dim, (3+self.out_dim) * self.vote_factor, 1)
+        self.conv3 = torch.nn.Conv1d(self.in_dim, (2+3+self.out_dim) * self.vote_factor, 1)
         self.bn1 = torch.nn.BatchNorm1d(self.in_dim)
         self.bn2 = torch.nn.BatchNorm1d(self.in_dim)
         
@@ -52,17 +52,17 @@ class VotingModule(nn.Module):
         net = F.relu(self.bn2(self.conv2(net))) 
         net = self.conv3(net) # (batch_size, (3+out_dim)*vote_factor, num_seed)
                 
-        net = net.transpose(2,1).view(batch_size, num_seed, self.vote_factor, 3+self.out_dim)
-        offset = net[:,:,:,0:3]
+        net = net.transpose(2,1).view(batch_size, num_seed, self.vote_factor, 2+3+self.out_dim)
+        offset = net[:,:,:,2:2+3]
         vote_xyz = seed_xyz.unsqueeze(2) + offset
         vote_xyz = vote_xyz.contiguous().view(batch_size, num_vote, 3)
         
-        residual_features = net[:,:,:,3:] # (batch_size, num_seed, vote_factor, out_dim)
+        residual_features = net[:,:,:,2+3:] # (batch_size, num_seed, vote_factor, out_dim)
         vote_features = seed_features.transpose(2,1).unsqueeze(2) + residual_features
         vote_features = vote_features.contiguous().view(batch_size, num_vote, self.out_dim)
         vote_features = vote_features.transpose(2,1).contiguous()
         
-        return vote_xyz, vote_features
+        return vote_xyz, vote_features, net[:,:,:,0:2].view(batch_size, num_vote, 2).contiguous()
  
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()

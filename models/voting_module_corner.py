@@ -38,6 +38,9 @@ class VotingCornerModule(nn.Module):
         self.conv4 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv5 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv6 = torch.nn.Conv1d(self.in_dim, (3+self.out_dim) * self.vote_factor, 1)
+
+        self.conv7 = torch.nn.Conv1d(self.in_dim*2, 2 * self.vote_factor, 1)
+        
         self.bn3 = torch.nn.BatchNorm1d(self.in_dim)
         self.bn4 = torch.nn.BatchNorm1d(self.in_dim)
         
@@ -55,8 +58,8 @@ class VotingCornerModule(nn.Module):
         num_seed = seed_xyz.shape[1]
         num_vote = num_seed*self.vote_factor
         net = F.relu(self.bn1(self.conv1(seed_features))) 
-        net = F.relu(self.bn2(self.conv2(net))) 
-        net = self.conv3(net) # (batch_size, (3+out_dim)*vote_factor, num_seed)
+        net_c1 = F.relu(self.bn2(self.conv2(net))) 
+        net = self.conv3(net_c1) # (batch_size, (3+out_dim)*vote_factor, num_seed)
                 
         net = net.transpose(2,1).view(batch_size, num_seed, self.vote_factor, 3+self.out_dim)
         offset = net[:,:,:,0:3]
@@ -69,9 +72,11 @@ class VotingCornerModule(nn.Module):
         vote_features = vote_features.transpose(2,1).contiguous()
 
         net = F.relu(self.bn3(self.conv4(seed_features))) 
-        net = F.relu(self.bn4(self.conv5(net))) 
-        net = self.conv6(net) # (batch_size, (3+out_dim)*vote_factor, num_seed)
-                
+        net_c2 = F.relu(self.bn4(self.conv5(net))) 
+        net = self.conv6(net_c2) # (batch_size, (3+out_dim)*vote_factor, num_seed)
+
+        net_cueness = self.conv7(torch.cat((net_c1, net_c2), 1))
+        
         net = net.transpose(2,1).view(batch_size, num_seed, self.vote_factor, 3+self.out_dim)
         offset = net[:,:,:,0:3]
         vote_xyz_other = seed_xyz.unsqueeze(2) + offset
@@ -82,7 +87,7 @@ class VotingCornerModule(nn.Module):
         vote_features_other = vote_features_other.contiguous().view(batch_size, num_vote, self.out_dim)
         vote_features_other = vote_features_other.transpose(2,1).contiguous()
         
-        return vote_xyz, vote_features, vote_xyz_other, vote_features_other
+        return vote_xyz, vote_features, vote_xyz_other, vote_features_other, net_cueness.transpose(2,1).contiguous()
  
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()

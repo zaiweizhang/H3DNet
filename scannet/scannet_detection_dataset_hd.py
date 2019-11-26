@@ -597,6 +597,8 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['vote_label'] = point_votes.astype(np.float32)
         ret_dict['vote_label_corner1'] = point_votes_corner1.astype(np.float32)
         ret_dict['vote_label_corner2'] = point_votes_corner2.astype(np.float32)
+        #ret_dict['vote_label_corner'] = ((point_votes_corner1 + point_votes_corner2) / 2.0).astype(np.float32)
+        #ret_dict['vote_label_corner2'] = point_votes_corner2.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
 
         ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices[:,:4]], 1).astype(np.float32)

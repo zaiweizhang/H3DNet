@@ -205,14 +205,15 @@ class HDNet(nn.Module):
         '''
         features_combine = torch.cat((features, features_plane), 1)
         '''
-        proposal_xyz, proposal_features = self.vgen(xyz, features_combine_center)
+        proposal_xyz, proposal_features, proposal_cueness = self.vgen(xyz, features_combine_center)
         
         proposal_features_norm = torch.norm(proposal_features, p=2, dim=1)
         proposal_features = proposal_features.div(proposal_features_norm.unsqueeze(1))
         end_points['vote_xyz'] = proposal_xyz
         end_points['vote_features'] = proposal_features
+        end_points['cueness_scores'+'center'] = proposal_cueness
 
-        voted_xyz_corner1, voted_xyz_corner1_feature, voted_xyz_corner2, voted_xyz_corner2_feature = self.vgen_corner(xyz_corner, features_combine_corner)
+        voted_xyz_corner1, voted_xyz_corner1_feature, voted_xyz_corner2, voted_xyz_corner2_feature, corner_cueness = self.vgen_corner(xyz_corner, features_combine_corner)
         
         #proposal_features_norm = torch.norm(proposal_features, p=2, dim=1)
         #proposal_features = proposal_features.div(proposal_features_norm.unsqueeze(1))
@@ -227,7 +228,9 @@ class HDNet(nn.Module):
         end_points['vote_xyz_corner1_feature'] = voted_xyz_corner1_feature
         end_points['vote_xyz_corner2'] = voted_xyz_corner2
         end_points['vote_xyz_corner2_feature'] = voted_xyz_corner2_feature
-
+        end_points['vote_xyz_corner_center'] = (voted_xyz_corner1 + voted_xyz_corner2) / 2.0
+        end_points['cueness_scores'+'corner'] = corner_cueness
+        
         voted_xyz_corner = torch.cat((voted_xyz_corner1, voted_xyz_corner2), 1)        
         voted_xyz_corner_feature = torch.cat((voted_xyz_corner1_feature, voted_xyz_corner2_feature), 2)
         

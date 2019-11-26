@@ -92,9 +92,9 @@ class ProposalModule(nn.Module):
         '''
         #for _ in range(2):
         self.vote_aggregation_corner = PointnetSAModuleVotes( 
-                npoint=self.num_proposal*2,
+                npoint=self.num_proposal,
                 radius=0.3,
-                nsample=16*2,
+                nsample=16,
                 mlp=[self.seed_feat_dim+3+3, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True
@@ -158,13 +158,12 @@ class ProposalModule(nn.Module):
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
 
-        '''
-        self.conv_corner1 = torch.nn.Conv1d(128*2,128,1)
+        self.conv_corner1 = torch.nn.Conv1d(128,128,1)
         self.conv_corner2 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner3 = torch.nn.Conv1d(128,2+3,1)
+        self.conv_corner3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         self.bn_corner1 = torch.nn.BatchNorm1d(128)
         self.bn_corner2 = torch.nn.BatchNorm1d(128)
-        '''
+        
         self.conv_corner_scale1 = torch.nn.Conv1d(128,128,1)
         self.conv_corner_scale2 = torch.nn.Conv1d(128,128,1)
         #self.conv_corner_scale3 = torch.nn.Conv1d(128,num_size_cluster*4,1)
@@ -243,25 +242,39 @@ class ProposalModule(nn.Module):
             '''
             # Farthest point sampling (FPS) on votes
             num_point = features.shape[2]
-            features_center = features
-            xyz, features, fps_inds = self.vote_aggregation(xyz, features)
-            sample_inds = fps_inds
 
-            sample_inds_corner = torch.cat((sample_inds, sample_inds+num_point), 1)
+            #sample_inds_corner = torch.cat((sample_inds, sample_inds+num_point), 1)
             voted_xyz_scale = xyz_corner[:,num_point:,:] - xyz_corner[:,:num_point,:]
             voted_xyz_center = (xyz_corner[:,num_point:,:] + xyz_corner[:,:num_point,:]) / 2.0
             voted_xyz_corner1_feature = torch.cat((voted_xyz_center.transpose(2,1).contiguous(), voted_xyz_scale.transpose(2,1).contiguous(), features_corner[:,:,:num_point]), 1)
             voted_xyz_corner2_feature = torch.cat((voted_xyz_center.transpose(2,1).contiguous(), voted_xyz_scale.transpose(2,1).contiguous(), features_corner[:,:,num_point:]), 1)
+            #voted_xyz_corner_feature = torch.cat(((voted_xyz_center - xyz).transpose(2,1).contiguous(), voted_xyz_scale.transpose(2,1).contiguous(), features_corner[:,:,:num_point], features_corner[:,:,num_point:]), 1)
             voted_xyz_corner_feature = torch.cat((voted_xyz_scale.transpose(2,1).contiguous(), features_corner[:,:,:num_point], features_corner[:,:,num_point:]), 1)
+
+            features_center = features
+            #features_center = torch.cat((features, voted_xyz_corner_feature), 1)
+            #features_center = torch.cat(((xyz - voted_xyz_center).transpose(2,1).contiguous(), features), 1)
+            #voted_xyz_corner_feature = torch.cat((features, voted_xyz_corner_feature), 1)
+
+            xyz, features, fps_inds = self.vote_aggregation(xyz, features_center)
+            sample_inds = fps_inds
             #voted_xyz_corner_feature = torch.cat((features_corner[:,:,:num_point], features_corner[:,:,num_point:]), 1)
             #features_corner = torch.cat((voted_xyz_corner1_feature, voted_xyz_corner2_feature), 2)
             #xyz_corner, features_corner, fps_inds_corner = self.vote_aggregation_corner(xyz_corner, features_corner, inds=sample_inds_corner)
+
+            #xyz_corner1, features_corner1, _ = self.vote_aggregation_corner(xyz_corner[:,num_point:,:].contiguous(), voted_xyz_corner1_feature, inds=sample_inds)
+
             #sample_inds_corner = fps_inds_corner
             #features_corner = torch.cat((features_corner[:,:,:self.num_proposal], features_corner[:,:,self.num_proposal:]), 1)
             #xyz_corner_center = (xyz_corner[:,:self.num_proposal,:] + xyz_corner[:,self.num_proposal:,:]) / 2.0
             #xyz_corner_scale = (xyz_corner[:,self.num_proposal:,:] - xyz_corner[:,:self.num_proposal,:])
             xyz_corner_center, features_corner_scale, _ = self.vote_aggregation_corner_scale(voted_xyz_center, voted_xyz_corner_feature, inds=sample_inds)
+
+            #xyz_corner2, features_corner2, _ = self.vote_aggregation_corner_scale(xyz_corner[:,:num_point,:].contiguous(), voted_xyz_corner2_feature, inds=sample_inds)
+
             #sample_inds_corner = fps_inds_corner
+            #xyz_corner_center = (xyz_corner1 + xyz_corner2) / 2.0
+            #features_corner_scale = torch.cat((features_corner1, features_corner2), 1)
             
             sample_inds_plane = torch.cat((sample_inds, sample_inds+num_point, sample_inds+num_point*2, sample_inds+num_point*3, sample_inds+num_point*4, sample_inds+num_point*5), 1)
             xyz_plane, features_plane, fps_inds_plane = self.vote_aggregation_plane(xyz_plane, features_plane, inds=sample_inds_plane)
