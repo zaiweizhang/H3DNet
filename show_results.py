@@ -80,6 +80,14 @@ def load_view_point(pcd, filename, window_name):
     vis.run()
     vis.destroy_window()
 
+def select_bbox(bboxes):
+    choose_ids = []
+    for i in range(bboxes.shape[0]):
+        if bboxes[i,-1] in OBJ_CLASS_IDS:
+            choose_ids.append(i)
+    bboxes = bboxes[choose_ids]
+    return bboxes
+
 def export_one_scan(scan_name):
     mesh_file = os.path.join(SCANNET_DIR, scan_name, scan_name + '_vh_clean_2.ply')
     agg_file = os.path.join(SCANNET_DIR, scan_name, scan_name + '.aggregation.json')
@@ -87,7 +95,8 @@ def export_one_scan(scan_name):
     meta_file = os.path.join(SCANNET_DIR, scan_name, scan_name + '.txt') # includes axisAlignment info for the train set scans.
     mesh, mesh_vertices, semantic_labels, instance_labels, instance_bboxes, instance2semantic = \
         export(mesh_file, agg_file, seg_file, meta_file, LABEL_MAP_FILE)
-    gt_bbox = np.load(os.path.join(PRED_PATH, scan_name+'_bbox.npy'))
+    gt_bbox = np.load(os.path.join(PRED_PATH, scan_name+'_all_angle_40cls.npy'))
+    gt_bbox = select_bbox(np.unique(gt_bbox,axis=0))
     init_proposals = np.load(os.path.join(init_path, 'plane'+scan_name+'_nms.npy'))
     
     mask = np.logical_not(np.in1d(semantic_labels, DONOTCARE_CLASS_IDS))
