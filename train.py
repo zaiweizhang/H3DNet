@@ -147,7 +147,7 @@ elif FLAGS.dataset == 'scannet_hd':
     from model_util_scannet import ScannetDatasetConfig
     DATASET_CONFIG = ScannetDatasetConfig()
     TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-                                            augment=False, use_angle=FLAGS.use_angle,
+                                            augment=True, use_angle=FLAGS.use_angle,
                                             use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
     TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
                                            augment=False, use_angle=FLAGS.use_angle,
@@ -371,6 +371,8 @@ def evaluate_one_epoch():
         class2type_map=DATASET_CONFIG.class2type)
     ap_calculator_plane = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_comb = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
     total_correct_sem = 0
     total_sem = 0
@@ -485,6 +487,10 @@ def evaluate_one_epoch():
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator_plane.step(batch_pred_map_cls, batch_gt_map_cls)
 
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='comb')
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator_comb.step(batch_pred_map_cls, batch_gt_map_cls)
+
         # Dump evaluation results for visualization
         if FLAGS.dump_results:# and EPOCH_CNT %10 == 0:
             #if FLAGS.use_plane:
@@ -494,6 +500,7 @@ def evaluate_one_epoch():
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='center')
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='comb')
             
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
@@ -515,7 +522,12 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator_plane.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
+    log_string('Using comb')
+    metrics_dict = ap_calculator_comb.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
 
+        
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
 
@@ -524,7 +536,7 @@ def train(start_epoch):
     min_loss = 1e10
     loss = 0
     local_epoch = MAX_EPOCH 
-    if FLAGS.get_data == True:
+    if FLAGS.get_data == True or FLAGS.dump_results == True:
         local_epoch = start_epoch + 1
         #import pdb;pdb.set_trace()
     for epoch in range(start_epoch, local_epoch):
@@ -536,8 +548,9 @@ def train(start_epoch):
         # Reset numpy seed.
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
-        train_one_epoch()
-        if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
+        if not FLAGS.dump_results:
+            train_one_epoch()
+        if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
         save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1

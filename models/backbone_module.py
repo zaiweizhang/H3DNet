@@ -45,7 +45,7 @@ class Pointnet2Backbone(nn.Module):
                 npoint=1024,
                 radius=0.4,
                 nsample=32,
-                mlp=[128, 64, 64, 128],
+                mlp=[128, 128, 128, 256],
                 use_xyz=True,
                 normalize_xyz=True
             )
@@ -54,7 +54,7 @@ class Pointnet2Backbone(nn.Module):
                 npoint=512,
                 radius=0.8,
                 nsample=16,
-                mlp=[128, 64, 64, 128],
+                mlp=[256, 128, 128, 256],
                 use_xyz=True,
                 normalize_xyz=True
             )
@@ -63,15 +63,15 @@ class Pointnet2Backbone(nn.Module):
                 npoint=256,
                 radius=1.2,
                 nsample=16,
-                mlp=[128, 64, 64, 128],
+                mlp=[256, 128, 128, 256],
                 use_xyz=True,
                 normalize_xyz=True
             )
 
-        #self.fp1 = PointnetFPModule(mlp=[256+256,256,256])
-        #self.fp2 = PointnetFPModule(mlp=[256+256,256,128])
-        self.fp1 = PointnetFPModule(mlp=[128+128,128,128])
-        self.fp2 = PointnetFPModule(mlp=[128+128,128,128])
+        self.fp1 = PointnetFPModule(mlp=[256+256,256,256])
+        self.fp2 = PointnetFPModule(mlp=[256+256,256,256])
+        #self.fp1 = PointnetFPModule(mlp=[128+128,128,128])
+        #self.fp2 = PointnetFPModule(mlp=[128+128,128,128])
         #self.fp3 = PointnetFPModule(mlp=[256+128,256,256])
         #self.fp4 = PointnetFPModule(mlp=[256,128,128])
 

@@ -299,28 +299,14 @@ class ScannetDetectionDataset(Dataset):
         ### Plane Patches
         plane_label = np.zeros([self.num_points, 3+4])
         plane_label_mask = np.zeros(self.num_points)
+        plane_votes_offset = np.zeros([self.num_points, 1])
+        plane_votes_label = np.zeros([self.num_points, 3])
         plane_votes_front = np.zeros([self.num_points, 4])
         plane_votes_back = np.zeros([self.num_points, 4])
         plane_votes_left = np.zeros([self.num_points, 4])
         plane_votes_right = np.zeros([self.num_points, 4])
         plane_votes_upper = np.zeros([self.num_points, 4])
         plane_votes_lower = np.zeros([self.num_points, 4])
-
-        '''
-        plane_votes_rot_front = np.zeros([self.num_points, 3])
-        plane_votes_rot_back = np.zeros([self.num_points, 3])
-        plane_votes_rot_left = np.zeros([self.num_points, 3])
-        plane_votes_rot_right = np.zeros([self.num_points, 3])
-        plane_votes_rot_upper = np.zeros([self.num_points, 3])
-        plane_votes_rot_lower = np.zeros([self.num_points, 3])
-
-        plane_votes_off_front = np.zeros([self.num_points, 1])
-        plane_votes_off_back = np.zeros([self.num_points, 1])
-        plane_votes_off_left = np.zeros([self.num_points, 1])
-        plane_votes_off_right = np.zeros([self.num_points, 1])
-        plane_votes_off_upper = np.zeros([self.num_points, 1])
-        plane_votes_off_lower = np.zeros([self.num_points, 1])
-        '''
         
         #assert(num_instance == len(np.unique(instance_labels)) - 1)
         """
@@ -388,128 +374,22 @@ class ScannetDetectionDataset(Dataset):
                             #plane_vertices[ind[temp_ind],:4] = plane_vertices[ind[temp_ind],:4] / np.linalg.norm(plane_vertices[ind[temp_ind][0],:3])
                 if len(plane_ind) > 0:
                     planes_org = plane_ind
-                    
+                    plane_off = []
+                    for plane in planes_org:
+                        #subx = point_cloud[plane,:3]
+                        plane_equ = plane_vertices[plane[0],:][:4]
+                        #point_sel = point_cloud[plane,:3]
+                        point_sel = np.stack([center]*len(plane), 0)
+                        new_off = -np.sum(point_sel * plane_equ[:3], -1)
+                        #plane_off.append(new_off - plane_equ[-1])
+                        plane_off.append(new_off)
+                    ### Just move the plane offset                                        
                     plane_ind = np.concatenate(plane_ind, 0)
                     plane_label_mask[plane_ind] = 1.0
-                    #plane_vertices[plane_ind,:4] = plane_vertices[plane_ind,:4]# / np.linalg.norm(plane_vertices[plane_ind[0],:], -1)
-                    #plane_lower_temp = leastsq(residuals, [0,0,1,0], args=(None, np.array([corners[0], corners[2], corners[4], corners[6]]).T))[0]
-                    #plane_lower_temp /= np.linalg.norm(plane_lower_temp[:3])
-                    plane_lower_temp = np.array([0,0,1,-corners[6,-1]])
-                    para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
-                    newd = np.sum(para_points * plane_lower_temp[:3], 1)
-                    if check_upright(para_points) and plane_lower_temp[0]+plane_lower_temp[1] < LOWER_THRESH:
-                        plane_lower = np.array([0,0,0,plane_lower_temp[-1]]) 
-                        plane_upper = np.array([0,0,0,-np.mean(newd)])
-                    else:
-                        import pdb;pdb.set_trace()
-                        print ("error with upright")
-                    if check_z(plane_upper, para_points) == False:
-                        import pdb;pdb.set_trace()
-                        
-                    #plane_left_temp = leastsq(residuals, [1,0,0,0], args=(None, np.array([corners[0], corners[1], corners[2], corners[3]]).T))[0]
-                    v1 = corners[3] - corners[2]
-                    v2 = corners[2] - corners[0]
-                    cp = np.cross(v1, v2)
-                    d = -np.dot(cp,corners[0])
-                    a,b,c = cp
-                    plane_left_temp = np.array([a, b, c, d])
-                    para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
-                    ### Normalize xy here
-                    plane_left_temp /= np.linalg.norm(plane_left_temp[:3])
-                    newd = np.sum(para_points * plane_left_temp[:3], 1)
-                    if plane_left_temp[2] < LOWER_THRESH:
-                        ang = np.arctan(-plane_left_temp[0]/plane_left_temp[1])
-                        cls, res = ang2cls(ang)
-                        tempsign = np.sign(plane_left_temp[1])
-                        if tempsign == 0:
-                            tempsign = 1
-                        plane_left = np.array([cls,res,tempsign,plane_left_temp[-1]]) 
-                        plane_right = np.array([cls,res,tempsign,-np.mean(newd)])
-                    else:
-                        import pdb;pdb.set_trace()
-                        print ("error with upright")
-                    if check_xy(plane_right, para_points) == False:
-                        import pdb;pdb.set_trace()
-
-                    #plane_front_temp = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
-                    v1 = corners[0] - corners[4]
-                    v2 = corners[4] - corners[5]
-                    cp = np.cross(v1, v2)
-                    d = -np.dot(cp,corners[5])
-                    a,b,c = cp
-                    plane_front_temp = np.array([a, b, c, d])
-                    para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
-                    plane_front_temp /= np.linalg.norm(plane_front_temp[:3])
-                    newd = np.sum(para_points * plane_front_temp[:3], 1)
-                    if plane_front_temp[2] < LOWER_THRESH:
-                        ang = np.arctan(-plane_front_temp[0]/plane_front_temp[1])
-                        cls, res = ang2cls(ang)
-                        tempsign = np.sign(plane_front_temp[1])
-                        if tempsign == 0:
-                            tempsign = 1
-                        plane_front = np.array([cls,res,tempsign,plane_front_temp[-1]]) 
-                        plane_back = np.array([cls,res,tempsign,-np.mean(newd)])
-                    else:
-                        import pdb;pdb.set_trace()
-                        print ("error with upright")
-                    if (check_xy(plane_back, para_points) == False):
-                        import pdb;pdb.set_trace()
-
-                    #plane_votes_upper[plane_ind,:] = np.concatenate([np.stack([plane_upper[:3]]*len(plane_ind), 0), np.array([plane_upper[-1] - plane_vertices[plane_ind,3]]).T], 1)
-                    plane_votes_upper[plane_ind,:] = plane_upper#np.stack([plane_upper[:4]]*len(plane_ind), 0)
-                    #plane_votes_lower[plane_ind,:] = np.concatenate([np.stack([plane_lower[:3]]*len(plane_ind), 0), np.array([plane_lower[-1] - plane_vertices[plane_ind,3]]).T], 1)
-                    plane_votes_lower[plane_ind,:] = plane_lower
-                    #plane_votes_front[plane_ind,:] = np.concatenate([np.stack([plane_front[:3]]*len(plane_ind), 0), np.array([plane_front[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_front# / plane_front[-1]
-                    plane_votes_front[plane_ind,:] = plane_front
-                    #plane_votes_back[plane_ind,:] = np.concatenate([np.stack([plane_back[:3]]*len(plane_ind), 0), np.array([plane_back[-1] - plane_vertices[plane_ind,3]]).T], 1)#plane_back# / plane_back[-1]
-                    plane_votes_back[plane_ind,:] = plane_back
-                    plane_votes_left[plane_ind,:] = plane_left
-                    plane_votes_right[plane_ind,:] = plane_right
-
-                    '''
-                    for plane in planes_org:
-                        plane_equ = plane_vertices[plane[0],:4]
-                        sel_idx = np.argmax(np.abs(plane_equ[:3]))
-                        if sel_idx == 0:
-                            plane_mask_left[plane] = 1.0
-                            plane_mask_right[plane] = 1.0
-                        elif sel_idx == 1:
-                            plane_mask_front[plane] = 1.0
-                            plane_mask_back[plane] = 1.0
-                        else:
-                            plane_mask_upper[plane] = 1.0
-                            plane_mask_lower[plane] = 1.0
-                        import pdb;pdb.set_trace()
-                    '''
+                    plane_votes_offset[plane_ind] = np.expand_dims(np.concatenate(plane_off, 0), -1)
+                    plane_votes_label[plane_ind, :] = center - point_cloud[plane_ind,:3]
                     #import pdb;pdb.set_trace()
-                    '''
-                    xyz = np.array([corners[2], corners[3], corners[6], corners[7]])
-                    pc_util.write_ply_label(point_cloud, np.zeros(point_cloud.shape[0]), 'just_plane_1.ply', 1)
-                    pc_util.write_ply_label(xyz, np.zeros(xyz.shape[0]), 'just_plane_2.ply', 1)
-                    new_xyz = np.array([corners[0], corners[1], corners[4], corners[5]])
-                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_3.ply', 1)
-                    import pdb;pdb.set_trace()
-                    xy = xyz[:,:2]
-                    z = -(np.sum(plane_back[:2]*xy, 1) + plane_back[3]) / plane_back[2]
-                    new_xyz = np.concatenate([xy,np.expand_dims(z, -1)], 1)
-                    
-                    pc_util.write_ply_label(point_cloud, np.zeros(point_cloud.shape[0]), 'just_plane_1.ply', 1)
-                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_2.ply', 1)
 
-                    choice = np.random.choice(point_cloud.shape[0], 1000, replace=False)
-                    ### get z
-                    xy = point_cloud[choice,:2]
-                    z = -(np.sum(plane_back[:2]*xy, 1) + plane_back[3]) / plane_back[2]
-                    new_xyz = np.concatenate([xy,np.expand_dims(z, -1)], 1)
-                    pc_util.write_ply_label(new_xyz, np.zeros(new_xyz.shape[0]), 'just_plane_3.ply', 1)
-                    import pdb;pdb.set_trace()
-                    '''
-                    '''
-                    import pdb;pdb.set_trace()
-                    viz_plane(np.concatenate([point_cloud[:,:3], plane_vertices[:,:4]], 1), plane_label_mask,name=str(i_example)+'plane')
-                    cmap = viz_plane(np.concatenate([point_cloud[:,:3], plane_votes_upper], 1), plane_label_mask,name=str(i_example)+'plane_oneside')
-                    import pdb;pdb.set_trace()
-                    '''
         num_instance = len(obj_meta)
         obj_meta = np.array(obj_meta)
         obj_meta = obj_meta.reshape(-1, 9)
@@ -552,9 +432,12 @@ class ScannetDetectionDataset(Dataset):
 
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
+        plane_votes_label = np.tile(plane_votes_label, (1, 3)) # make 3 votes identical
         point_sem_label = np.tile(np.expand_dims(point_sem_label, -1), (1, 3)) # make 3 votes identical
         point_votes_corner1 = np.tile(point_votes_corner1, (1, 3)) # make 3 votes identical
         point_votes_corner2 = np.tile(point_votes_corner2, (1, 3)) # make 3 votes identical
+
+        plane_votes_offset = np.tile(plane_votes_offset, (1, 3)) # make 3 votes identical
 
         plane_votes_rot_front = np.tile(plane_votes_front[:,:3], (1, 3)) # make 3 votes identical
         plane_votes_off_front = np.tile(np.expand_dims(plane_votes_front[:,3], -1), (1, 3)) # make 3 votes identical
@@ -601,8 +484,12 @@ class ScannetDetectionDataset(Dataset):
         #ret_dict['vote_label_corner2'] = point_votes_corner2.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
 
+        ret_dict['vote_label_plane'] = plane_votes_label.astype(np.float32)
+        
         ret_dict['plane_label'] = np.concatenate([point_cloud, plane_vertices[:,:4]], 1).astype(np.float32)
         ret_dict['plane_label_mask'] = plane_label_mask.astype(np.float32)
+        ret_dict['plane_votes_offset'] = plane_votes_offset.astype(np.float32)
+        
         ret_dict['plane_votes_y'] = plane_votes_rot_front.astype(np.float32)
         ret_dict['plane_votes_y0'] = plane_votes_off_front.astype(np.float32)
         ret_dict['plane_votes_y1'] = plane_votes_off_back.astype(np.float32)

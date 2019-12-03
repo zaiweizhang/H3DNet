@@ -69,9 +69,31 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
     # INPUT
     point_clouds = end_points['point_clouds'].cpu().numpy()
     batch_size = point_clouds.shape[0]
-
+    
     # NETWORK OUTPUTS
     seed_xyz = end_points['seed_xyz'].detach().cpu().numpy() # (B,num_seed,3)
+    gt_center = end_points['center_label'].cpu().numpy() # (B,MAX_NUM_OBJ,3)
+    gt_num = end_points['num_instance'].cpu().numpy() # (B,MAX_NUM_OBJ,3)
+    #cueness = end_points['cueness_scores'+mode].detach().cpu().numpy()
+    scan_idxes = end_points['scan_idx'].detach().cpu().numpy()
+    pred_center = end_points['vote_xyz'].detach().cpu().numpy()
+    pred_corner = end_points['vote_xyz_corner_center'].detach().cpu().numpy()
+    pred_plane = end_points['vote_xyz_plane'].detach().cpu().numpy()
+    '''
+    for i in range(len(seed_xyz)):
+        idx = scan_idxes[i]
+        scan = dataset.scan_names[idx]
+        orig_pc = point_clouds[i,...]
+        sub_pc = seed_xyz[i,...]
+        gt_c = gt_center[i,:gt_num[i],:]
+        if mode=='center':
+            objcue = pred_center[i,...]
+        elif mode=='corner':
+            objcue = pred_corner[i,...]
+        else:
+            objcue = pred_plane[i,...]
+        scipy.io.savemat(dump_dir + mode + scan + '_vote.mat', {'origpc': orig_pc, 'subpc': sub_pc, 'pred': objcue, 'gt': gt_c}) 
+    '''
     #if 'vote_xyz' in end_points:
     #aggregated_vote_xyz = end_points['aggregated_vote_xyz'+mode].detach().cpu().numpy()
     #vote_xyz = end_points['vote_xyz'+mode].detach().cpu().numpy() # (B,num_seed,3)
@@ -101,8 +123,6 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
     objectness_mask = end_points['objectness_mask'+mode].detach().cpu().numpy() # (B,K,)
     sem_cls_label = end_points['sem_cls_label'].detach().cpu().numpy()
 
-
-    scan_idxes = end_points['scan_idx'].detach().cpu().numpy()
     # pred
     # pc = point_clouds[i,:,:]
     # vote_xyz # B, 1024, 3
