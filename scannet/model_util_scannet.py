@@ -14,18 +14,23 @@ from box_util import get_3d_box
 
 class ScannetDatasetConfig(object):
     def __init__(self):
-        self.num_class = 18
+        self.num_class = 37#18
         self.num_heading_bin = 24 # angle: -pi/2~pi/2, so divide 0~2*pi into 24 bin
-        self.num_size_cluster = 18
+        self.num_size_cluster = 37#18
 
-        self.type2class = {'cabinet':0, 'bed':1, 'chair':2, 'sofa':3, 'table':4, 'door':5,
-            'window':6,'bookshelf':7,'picture':8, 'counter':9, 'desk':10, 'curtain':11,
-            'refrigerator':12, 'showercurtrain':13, 'toilet':14, 'sink':15, 'bathtub':16, 'garbagebin':17}  
+        #self.type2class = {'cabinet':0, 'bed':1, 'chair':2, 'sofa':3, 'table':4, 'door':5, 'window':6,'bookshelf':7,'picture':8, 'counter':9, 'desk':10, 'curtain':11, 'refrigerator':12, 'showercurtrain':13, 'toilet':14, 'sink':15, 'bathtub':16, 'garbagebin':17}
+        self.type2class = {'wall':0, 'floor':1, 'cabinet':2, 'bed':3, 'chair':4, 'sofa':5, 'table':6, 'door':7,'window':8,'bookshelf':9,'picture':10, 'counter':11, 'blinds':12, 'desk':13, 'shelves':14, 'curtain':15, 'dresser':16, 'pillow':17, 'mirror':18, 'floormat':19, 'clothes':20, 'ceiling':21, 'books':22, 'refrigerator':23, 'television':24, 'paper':25, 'towel':26, 'showercurtrain':27, 'box':28, 'whiteboard':29, 'person':30, 'nightstand':31, 'toilet':32, 'sink':33, 'lamp':34, 'bathtub':35, 'bag':36}
+        self.type2class_room = {'other':0, 'wall':1, 'floor':2}
         self.class2type = {self.type2class[t]:t for t in self.type2class}
-        self.nyu40ids = np.array([3,4,5,6,7,8,9,10,11,12,14,16,24,28,33,34,36,39])
+        self.class2type_room = {self.type2class_room[t]:t for t in self.type2class_room}
+        #self.nyu40ids = np.array([3,4,5,6,7,8,9,10,11,12,14,16,24,28,33,34,36,39])
+        self.nyu40ids = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36])
+        self.nyu40ids_room = np.array([1,2])
+        
         self.nyu40id2class = {nyu40id: i for i,nyu40id in enumerate(list(self.nyu40ids))}
         self.nyu40id2class_sem = {nyu40id: i for i,nyu40id in enumerate(list(self.nyu40ids))}
-        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means.npz'))['arr_0']
+        #self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means.npz'))['arr_0']
+        self.mean_size_arr = np.load(os.path.join(ROOT_DIR,'scannet/meta_data/scannet_means_v2.npz.npy'))[:self.num_class,:]
         self.type_mean_size = {}
         for i in range(self.num_size_cluster):
             self.type_mean_size[self.class2type[i]] = self.mean_size_arr[i,:]

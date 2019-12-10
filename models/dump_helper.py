@@ -151,7 +151,7 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
             box_pred_list.append(box)
             #lineset_pred_box_list.append(myutils.create_lineset_from_points(box, [0, 1, 0]))
         obb_pred_mat = np.array(obb_pred_list)
-
+        
         for j in range(gt_center.shape[1]):
             if gt_mask[i, j] == 0: continue
             obb = config.param2obb2(gt_center[i,j,0:3], gt_heading_class[i,j], gt_heading_residual[i,j],
@@ -161,8 +161,7 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
             box_gt_list.append(box)
             #lineset_gt_box_list.append(myutils.create_lineset_from_points(box, [1, 0, 0]))
         obb_gt_mat = np.array(obb_gt_list)
-
-        scipy.io.savemat(dump_dir + mode + scan + '_init.mat', {'pred': obb_pred_mat}) 
+        scipy.io.savemat(dump_dir + mode + scan + '_init.mat', {'pred': obb_pred_mat, 'objectness': objectness_scores[i,...]}) 
         scipy.io.savemat(dump_dir + mode + scan + '_gt.mat', {'gt': obb_gt_mat}) 
 
         # uncomment to visualize

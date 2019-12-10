@@ -373,6 +373,8 @@ def evaluate_one_epoch():
         class2type_map=DATASET_CONFIG.class2type)
     ap_calculator_comb = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_refine = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
     total_correct_sem = 0
     total_sem = 0
@@ -387,7 +389,7 @@ def evaluate_one_epoch():
     correct_cls_angle_plane = {}
     total_cls_angle_plane = {}
     
-    for cls in DATASET_CONFIG.class2type:
+    for cls in DATASET_CONFIG.class2type_room:
         correct_cls[cls] = 0
         total_cls[cls] = 0
         correct_cls_plane[cls] = 0
@@ -442,7 +444,19 @@ def evaluate_one_epoch():
         #center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
         #corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
-
+        for i in range(len(batch_data_label['num_instance'])):
+            ### For point
+            pre_sem = torch.argmax(end_points['pred_sem_class1'][i,...], 0).detach().cpu().numpy()
+            sem_idx = np.where(end_points['sem_mask'][i,...].detach().cpu().numpy() > 0)[0]
+            pre_sem = pre_sem[sem_idx]
+            gt_sem = np.squeeze(end_points['point_layout_sem'][i,:,0].cpu().numpy())[sem_idx]
+            for cls in DATASET_CONFIG.class2type_room.keys():
+                #correct_cls[cls] += np.sum((np.sum(pre_sem == gt_sem, 0) > 0) & (np.sum(gt_sem == cls, 0) > 0))
+                #total_cls[cls] += np.sum(np.sum(gt_sem == cls, 0) > 0)
+                correct_cls[cls] += np.sum((pre_sem == gt_sem) & (gt_sem == cls))
+                total_cls[cls] += np.sum(gt_sem == cls)
+            total_correct_sem += np.sum(pre_sem == gt_sem)
+            total_sem += len(gt_sem)
         '''
         for i in range(len(batch_data_label['num_instance'])):
             ### For point
@@ -475,6 +489,7 @@ def evaluate_one_epoch():
                 correct_cls_angle_plane[cls] += np.sum(np.minimum((pre_sem == gt_sem[:,0]) + (pre_sem == gt_sem[:,1]) + (pre_sem == gt_sem[:,2]), 1))
                 total_cls_angle_plane[cls] += len(gt_sem)
         '''
+        '''
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='center')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator_center.step(batch_pred_map_cls, batch_gt_map_cls)
@@ -491,6 +506,10 @@ def evaluate_one_epoch():
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator_comb.step(batch_pred_map_cls, batch_gt_map_cls)
 
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='refine')
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        ap_calculator_refine.step(batch_pred_map_cls, batch_gt_map_cls)
+        '''
         # Dump evaluation results for visualization
         if FLAGS.dump_results:# and EPOCH_CNT %10 == 0:
             #if FLAGS.use_plane:
@@ -501,15 +520,20 @@ def evaluate_one_epoch():
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='comb')
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='refine')
             
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
+    for cls in DATASET_CONFIG.class2type_room.keys():
+        log_string("For class %s: %f"%(cls, correct_cls[cls] / float(total_cls[cls])))
+    log_string("total acc: %f"%(total_correct_sem / float(total_sem)))
     #for cls in ['x', 'y', 'z']:
     #    log_string("For plane class %s: %f"%(cls, correct_cls_angle_plane[cls] / float(total_cls_angle_plane[cls])))
     # Evaluate average precision
+    '''
     log_string('Using center')
     metrics_dict = ap_calculator_center.compute_metrics()
     for key in metrics_dict:
@@ -526,7 +550,11 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator_comb.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
-
+    log_string('Using refine')
+    metrics_dict = ap_calculator_refine.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
+    '''
         
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss

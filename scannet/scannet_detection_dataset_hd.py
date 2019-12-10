@@ -25,12 +25,42 @@ from scipy.optimize import linear_sum_assignment
 from scipy.optimize import leastsq
 
 from scipy.cluster.vq import vq, kmeans, whiten
+from sklearn import linear_model
 
 DC = ScannetDatasetConfig()
-MAX_NUM_OBJ = 64
+MAX_NUM_OBJ = 128
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
 
 LOWER_THRESH = 1e-6
+def local_regression_plane_ransac(neighborhood):
+    """
+    Computes parameters for a local regression plane using RANSAC
+    """
+
+    XY = neighborhood[:,:2]
+    Z  = neighborhood[:,2]
+    ransac = linear_model.RANSACRegressor(
+                                          linear_model.LinearRegression(),
+                                          residual_threshold=0.1
+                                         )
+    ransac.fit(XY, Z)
+
+    inlier_mask = ransac.inlier_mask_
+    inlier_ind = np.where(inlier_mask)[0]
+    coeff = ransac.estimator_.coef_
+    intercept = ransac.estimator_.intercept_
+
+    normal = np.concatenate((coeff, [intercept]), 0)
+    normal = normal / np.linalg.norm(normal)
+
+    points = neighborhood * np.expand_dims(inlier_mask, -1)
+    ori = ((0 - neighborhood)*normal)[inlier_ind,:]
+
+    check = np.mean(np.sum(ori, 1))
+    if check < 0:
+        normal *= -1
+    return normal, inlier_ind
+    
 def check_upright(para_points):
     return (para_points[0][-1] == para_points[1][-1]) and (para_points[1][-1] == para_points[2][-1]) and (para_points[2][-1] == para_points[3][-1])
 
@@ -188,9 +218,12 @@ class ScannetDetectionDataset(Dataset):
         ### Without ori
         if self.use_angle:
             meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
+            ### Do not use data with angle for now
+            point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
         else:
             ### With ori
             meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
+            point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls_floor.npy') ### Need to change the name here
         
         ### Load voxel data
         sem_vox=np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_sem.npy'))
@@ -204,6 +237,25 @@ class ScannetDetectionDataset(Dataset):
 
         instance_labels = meta_vertices[:,-2]
         semantic_labels = meta_vertices[:,-1]
+
+        ### Create the dataset here
+        '''
+        #point_layout_in_mask = np.zeros(self.num_points)
+        point_cloud = mesh_vertices[:,0:3] # do not use color for now
+        point_layout_normal = np.zeros([point_cloud.shape[0],3])
+        for i_instance in np.unique(instance_labels):            
+            # find all points belong to that instance
+            ind = np.where(instance_labels == i_instance)[0]
+            if len(ind) <= 10:
+                continue
+            # find the layout related parameters
+            if semantic_labels[ind[0]] in DC.nyu40ids_room:
+                points = point_cloud[ind,:3]
+                coeff, inlier_ind = local_regression_plane_ransac(points)
+                point_layout_normal[ind,:] = coeff
+        np.save(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls_floor.npy', point_layout_normal)
+        return
+        '''
         #instance_labels = np.load(os.path.join(self.data_path, scan_name)+'_ins_label.npy')
         #semantic_labels = np.load(os.path.join(self.data_path, scan_name)+'_sem_label.npy')
         #support_labels = np.load(os.path.join(self.data_path, scan_name)+'_support_label.npy')
@@ -245,6 +297,7 @@ class ScannetDetectionDataset(Dataset):
         semantic_labels = semantic_labels[choices]
         plane_vertices = plane_vertices[choices]
         meta_vertices = meta_vertices[choices]
+        point_layout_normal = point_layout_normal[choices]
         
         pcl_color = pcl_color[choices]
 
@@ -294,6 +347,10 @@ class ScannetDetectionDataset(Dataset):
         point_votes_corner1 = np.zeros([self.num_points, 3])
         point_votes_corner2 = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
+        point_layout_mask = np.ones(self.num_points)
+        point_layout_in_mask = np.zeros(self.num_points)
+        point_layout_sem = np.zeros(self.num_points)
+        #point_layout_normal = np.zeros([self.num_points,3])
         point_sem_label = np.zeros(self.num_points)
         
         ### Plane Patches
@@ -325,7 +382,20 @@ class ScannetDetectionDataset(Dataset):
         for i_instance in np.unique(instance_labels):            
             # find all points belong to that instance
             ind = np.where(instance_labels == i_instance)[0]
-            # find the semantic label            
+            if len(ind) <= 10:
+                continue
+            # find the layout related parameters
+            if semantic_labels[ind[0]] in DC.nyu40ids_room:
+                meta = meta_vertices[ind[0]]
+                #import pdb;pdb.set_trace()
+                point_layout_mask[ind] = 1.0
+                point_layout_sem[ind] = meta[-1]
+
+                points = point_cloud[ind,:3]
+                #coeff, inlier_ind = local_regression_plane_ransac(points)
+                #point_layout_normal[ind,:] = coeff
+                #point_layout_in_mask[ind[inlier_ind]] = 1.0
+                
             if semantic_labels[ind[0]] in DC.nyu40ids:
                 x = point_cloud[ind,:3]
                 ### Meta information here
@@ -432,6 +502,8 @@ class ScannetDetectionDataset(Dataset):
 
         
         point_votes = np.tile(point_votes, (1, 3)) # make 3 votes identical
+        point_layout_normal = np.tile(point_layout_normal, (1, 3)) # make 3 votes identical
+        point_layout_sem = np.tile(np.expand_dims(point_layout_sem, -1), (1, 3)) # make 3 votes identical
         plane_votes_label = np.tile(plane_votes_label, (1, 3)) # make 3 votes identical
         point_sem_label = np.tile(np.expand_dims(point_sem_label, -1), (1, 3)) # make 3 votes identical
         point_votes_corner1 = np.tile(point_votes_corner1, (1, 3)) # make 3 votes identical
@@ -477,6 +549,11 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['point_sem_cls_label'] = point_sem_label.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
+        ret_dict['point_layout_mask'] = point_layout_mask.astype(np.int64)
+        ret_dict['point_layout_in_mask'] = point_layout_in_mask.astype(np.float32)
+        ret_dict['point_layout_normal'] = point_layout_normal.astype(np.float32)
+        ret_dict['point_layout_sem'] = point_layout_sem.astype(np.int64)
+        
         ret_dict['vote_label'] = point_votes.astype(np.float32)
         ret_dict['vote_label_corner1'] = point_votes_corner1.astype(np.float32)
         ret_dict['vote_label_corner2'] = point_votes_corner2.astype(np.float32)
@@ -619,18 +696,30 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
 
     
 if __name__=='__main__': 
+    dset_train = ScannetDetectionDataset(split_set='train', use_height=True, num_points=40000, augment=False, use_angle=False)
+    dset_val = ScannetDetectionDataset(split_set='val', use_height=True, num_points=40000, augment=False, use_angle=False)
+    for i in range(len(dset_train.scan_names)):
+        dset_train.__getitem__(i)
+        print ("finished train"+ str(i))
+    for i in range(len(dset_val.scan_names)):
+        dset_val.__getitem__(i)
+        print ("finished val"+ str(i))
+    sys.exit(0)
+    
     dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=False, use_angle=False)
     for i_example in range(1513):
         example = dset.__getitem__(i_example)
-        import pdb;pdb.set_trace()
         print (i_example)
         print (np.unique(example['plane_votes_x'][:,0]))
         print (np.unique(example['plane_votes_x'][:,1]))
         print (np.unique(example['plane_votes_y'][:,0]))
         print (np.unique(example['plane_votes_y'][:,1]))
-        continue
         pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
-        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,1], 'pc_sem_{}.ply'.format(str(i_example)),  18)
+        pc_util.write_ply_color_multi(example['point_clouds'][:,:3], example['point_layout_normal'][:,:3], 'pc_normal_{}.ply'.format(str(i_example)))
+        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_layout_sem'], 'pc_sem_room_{}.ply'.format(str(i_example)),  3)
+        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,0]+1, 'pc_sem_{}.ply'.format(str(i_example)),  38)
+        import pdb;pdb.set_trace()
+        continue
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
         viz_votes(example['point_clouds'], example['vote_label_corner'],

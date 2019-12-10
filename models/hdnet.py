@@ -73,6 +73,7 @@ class HDNet(nn.Module):
         #self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net = Pointnet2BackbonePlane(input_feature_dim=self.input_feature_dim)
         self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim) ### Just xyz + height
         self.backbone_net_corner = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         #self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
@@ -88,15 +89,14 @@ class HDNet(nn.Module):
         #self.conv2 = torch.nn.Conv1d(128,num_class,1)
         #self.conv2 = torch.nn.Conv1d(128,2,1)
 
-        '''
         ### Semantic Segmentation
         #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
         #self.conv_sem1 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem1 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
-        self.conv_sem2 = torch.nn.Conv1d(128,(num_class),1)
+        self.conv_sem1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
+        self.conv_sem2 = torch.nn.Conv1d(128,3,1)
         self.bn_sem1 = torch.nn.BatchNorm1d(128)
         self.dropout_sem1 = torch.nn.Dropout(0.5)
-
+        '''
         #self.conv_sem3 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
         self.conv_sem3 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
         self.conv_sem4 = torch.nn.Conv1d(128,(num_class),1)
@@ -118,6 +118,7 @@ class HDNet(nn.Module):
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
         self.vgen = VotingModule(self.vote_factor, 256)
+        self.vgen_normal = VotingModule(self.vote_factor, 256)
         self.vgen_corner = VotingCornerModule(self.vote_factor, 256)
         #self.vgen_corner = VotingPointModule(self.vote_factor, 256)
         self.vgen_plane = VotingPlaneModule(self.vote_factor, 256)
@@ -147,7 +148,8 @@ class HDNet(nn.Module):
 
         end_points = self.backbone_net_center(inputs['point_clouds'], end_points)
         end_points = self.backbone_net_corner(inputs['point_clouds'], end_points, mode='corner')
-        #end_points = self.backbone_net_point(inputs['point_clouds'], end_points, mode='sem')
+        #end_points = self.backbone_net_sem(inputs['point_clouds'], end_points, mode='sem')
+        end_points = self.backbone_net_sem(inputs['plane_label'], end_points, mode='sem')
         end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
         end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points)
         
@@ -167,6 +169,19 @@ class HDNet(nn.Module):
         end_points['seed_xyz'+'plane'] = xyz_plane
         end_points['seed_features'+'plane'] = features_plane
 
+        #features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
+        features_sem = end_points['fp2_features'+'sem']
+        net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_sem))))
+        net_sem = self.conv_sem2(net_sem)
+        end_points["pred_sem_class1"] = net_sem
+
+        normal_xyz, normal_features, normal_cueness = self.vgen_normal(xyz, features_sem)        
+        normal_features_norm = torch.norm(normal_features, p=2, dim=1)
+        normal_features = normal_features.div(normal_features_norm.unsqueeze(1))
+        end_points['normal_xyz'] = normal_xyz
+        end_points['normal_features'] = normal_features
+        #end_points['cueness_scores'+'center'] = proposal_cueness
+        
         #newxyz = torch.matmul(xyz, end_points['aug_rot'].float())
         #newxyz = torch.stack(((newxyz[:,:,0])*(-1*end_points['aug_yz'].unsqueeze(-1).float()), (newxyz[:,:,1])*(-1*end_points['aug_xz'].unsqueeze(-1).float()), newxyz[:,:,2]), 2)
 
@@ -186,21 +201,20 @@ class HDNet(nn.Module):
         #features_combine_corner = torch.cat((features, features_corner, features_plane), 1)
         #features_combine_plane = torch.cat((features, features_corner, features_plane), 1)
         
-        features_combine_discriptor = torch.stack((features, features_corner, features_plane), 2)
-        features_combine_discriptor = F.max_pool2d(features_combine_discriptor, (3,1), stride=1).squeeze(2)
+        #features_combine_discriptor = torch.stack((features, features_corner, features_plane), 2)
+        #features_combine_discriptor = F.max_pool2d(features_combine_discriptor, (3,1), stride=1).squeeze(2)
         
         #features_combine_discriptor = torch.cat((features, features_corner, features_plane), 1)
         #features_combine_discriptor = F.relu(self.bn1(self.conv1(features_combine_discriptor))) 
         #features_combine_discriptor = self.conv2(features_combine_discriptor)
-
         
-        features_combine_center = features_combine_discriptor
-        features_combine_corner = features_combine_discriptor
-        features_combine_plane = features_combine_discriptor
+        #features_combine_center = features_combine_discriptor
+        #features_combine_corner = features_combine_discriptor
+        #features_combine_plane = features_combine_discriptor
         
-        #features_combine_center = features
-        #features_combine_corner = features_corner
-        #features_combine_plane = features_plane
+        features_combine_center = features
+        features_combine_corner = features_corner
+        features_combine_plane = features_plane
         
         #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
         #features_combine_point = torch.cat((features, features_plane, features_vox), 1)

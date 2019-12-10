@@ -16,6 +16,8 @@ from pointnet2_modules import PointnetSAModuleVotes
 #from pointnet2_modules import PointnetSAModuleVotesMulti
 import pointnet2_utils
 
+UPPER_THRESH = 10.0
+
 def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster, mean_size_arr, mode=''):
     net_transposed = net.transpose(2,1) # (batch_size, 1024, ..)
     batch_size = net_transposed.shape[0]
@@ -29,6 +31,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     end_points['objectness_scores'+mode] = objectness_scores
     
     base_xyz = end_points['aggregated_vote_xyz'+mode] # (batch_size, num_proposal, 3)
+    end_points['centerres'+mode] = net_transposed[:,:,start:start+3]
     center = base_xyz + net_transposed[:,:,start:start+3] # (batch_size, num_proposal, 3)
     end_points['center'+mode] = center
 
@@ -123,19 +126,19 @@ class ProposalModule(nn.Module):
                 npoint=self.num_proposal,
                 radius=0.3,
                 nsample=16,
-                mlp=[(self.seed_feat_dim+3), 128, 128, 128],
+                mlp=[(self.seed_feat_dim+3)*1, 128, 128, 128],
+                use_xyz=True,
+                normalize_xyz=True
+            )
+
+        self.vote_aggregation_refine = PointnetSAModuleVotes( 
+                npoint=self.num_proposal,
+                radius=0.6,
+                nsample=16,
+                mlp=[128+5, 128, 128, 128],
                 use_xyz=True,
                 normalize_xyz=True,
                 same_idx=True
-            )
-
-        self.vote_aggregation_fine = PointnetSAModuleVotes( 
-                npoint=self.num_proposal,
-                radius=0.3,
-                nsample=16,
-                mlp=[128, 128, 128, 128],
-                use_xyz=True,
-                normalize_xyz=True
             )
         '''
         self.proposal_refine_corner = PointnetSAModuleVotes( 
@@ -198,6 +201,12 @@ class ProposalModule(nn.Module):
         self.conv_comb3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         self.bn_comb1 = torch.nn.BatchNorm1d(128)
         self.bn_comb2 = torch.nn.BatchNorm1d(128)
+
+        self.conv_refine1 = torch.nn.Conv1d(128,128,1)
+        self.conv_refine2 = torch.nn.Conv1d(128,128,1)
+        self.conv_refine3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.bn_refine1 = torch.nn.BatchNorm1d(128)
+        self.bn_refine2 = torch.nn.BatchNorm1d(128)
         
     def forward(self, xyz, features, xyz_corner, features_corner, xyz_plane, features_plane, end_points, mode=''):
         """
@@ -284,12 +293,14 @@ class ProposalModule(nn.Module):
             dist1 = torch.sum((xyz - voted_xyz_center)**2, dim=-1)
             dist2 = torch.sum((xyz - xyz_plane)**2, dim=-1)
             dist3 = torch.sum((voted_xyz_center - xyz_plane)**2, dim=-1)
-            mask = (dist1 < 0.3) & (dist2 < 0.3) & (dist3 < 0.3)
+            mask = (dist1 < 0.5) & (dist2 < 0.5) & (dist3 < 0.5)
+            #mask = (dist1 < 0.3) & (dist2 < 0.3) & (dist3 < 0.3)
 
             xyz_agree = []
             features_agree = []
             xyz_agree = torch.zeros((batch_size, num_point*3, 3)).cuda()
             features_agree = torch.zeros((batch_size, (features_center.shape[1]), num_point*3)).cuda()
+            #features_agree = torch.zeros((batch_size, (features_center.shape[1])*3, num_point*3)).cuda()
             inds_agree = []
             for i in range(batch_size):
                 inds = torch.nonzero(mask[i,:]).transpose(1,0).contiguous().int()
@@ -326,10 +337,11 @@ class ProposalModule(nn.Module):
                 #xyz_all = (xyz_center_a + xyz_corner_a + xyz_plane_a) / 3.0
                 #features_all = torch.cat((features_center_a, features_corner_a, features_plane_a), 1)
                 
-                xyz_flipped = xyz_all.transpose(1, 2).contiguous()
+                #xyz_flipped = xyz_all.transpose(1, 2).contiguous()
                 inds_proposal = pointnet2_utils.furthest_point_sample(xyz_all, self.num_proposal)
 
                 xyz_agree[i,:xyz_all.shape[1],:] += xyz_all.squeeze(0)
+                xyz_agree[i,xyz_all.shape[1]:,:] += UPPER_THRESH
                 features_agree[i,:,:features_all.shape[2]] += features_all.squeeze(0)
 
                 inds_agree.append(inds_proposal)
@@ -381,7 +393,7 @@ class ProposalModule(nn.Module):
             #xyz_comb, features_comb, _ = self.vote_aggregation_fine(xyz_combine, features_combine)
             xyz_comb, features_comb, _ = self.vote_aggregation_comb(xyz_agree, features_agree, inds=inds_agree)
             #xyz_comb, features_comb, _ = self.vote_aggregation_comb(xyz, features_center)
-            
+
             #features = torch.cat((features, features_corner, features_plane), 1)
         elif self.sampling == 'seed_fps': 
             # FPS on seed and choose the votes corresponding to the seeds
@@ -436,6 +448,18 @@ class ProposalModule(nn.Module):
         net_comb = self.conv_comb3(net_comb) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         end_points = decode_scores(net_comb, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='comb')
+
+        
+        newxyz = xyz_comb + end_points['centerres'+'comb']
+        newfeatures = torch.cat((end_points['objectness_scores'+'comb'].transpose(2,1).contiguous(), newxyz.transpose(2,1).contiguous(), features_comb), 1)
+        xyz_refine, features_refine, _ = self.vote_aggregation_refine(newxyz, newfeatures)
+        end_points['aggregated_vote_xyzrefine'] = xyz_refine# (batch_size, num_proposal, 3)
+
+        net_refine = F.relu(self.bn_refine1(self.conv_refine1(features_refine))) 
+        net_refine = F.relu(self.bn_refine2(self.conv_refine2(net_refine))) 
+        net_refine = self.conv_refine3(net_refine) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
+
+        end_points = decode_scores(net_refine, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='refine')
         
         '''
         comb_xyz = torch.cat((xyz, xyz_corner, xyz_plane), 1)
