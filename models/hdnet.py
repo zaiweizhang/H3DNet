@@ -22,6 +22,8 @@ import pc_util
 import cue_to_voxfield
 
 from backbone_module import Pointnet2Backbone, Pointnet2BackbonePlane
+from backbone_module_line import Pointnet2BackboneLine
+from backbone_module_surface import Pointnet2BackboneSurface
 from backbone_module_pairwise import Pointnet2BackbonePairwise
 from backbone_module_decoder import Pointnet2BackboneDecoder
 from backbone_module_dis import Pointnet2BackboneDis
@@ -31,10 +33,11 @@ from voting_module_point import VotingPointModule
 from voting_module_corner import VotingCornerModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
-from proposal_module_hd import ProposalModule
+#from proposal_module_hd import ProposalModule
+from proposal_module_surface import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
-from resnet_autoencoder import TwoStreamNetEncoder, TwoStreamNetDecoder
+from resnet_autoencoder import TwoStreamNetEncoder, TwoStreamNetDecoder, TwoStreamNet
 
 class HDNet(nn.Module):
     r"""
@@ -72,12 +75,15 @@ class HDNet(nn.Module):
         # Backbone point feature learning
         #self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net = Pointnet2BackbonePlane(input_feature_dim=self.input_feature_dim)
-        self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim) ### Just xyz + height
-        self.backbone_net_corner = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        #self.backbone_net_sem = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
-        self.backbone_net_voxel = TwoStreamNetEncoder()
+        #self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        #self.backbone_net_corner = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_sem_z = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_sem_xy = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_line = Pointnet2BackboneLine(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        #self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        #self.backbone_net_voxel = TwoStreamNetEncoder()
+        #self.backbone_net_voxel = TwoStreamNet()
+
         #self.backbone_net_other = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net_sem_support = Pointnet2BackbonePairwise(input_feature_dim=(num_class+1), task="sem")
         #self.backbone_net_tosem_support = Pointnet2BackboneDecoder(input_feature_dim=num_class*2, task="decoder")
@@ -90,12 +96,19 @@ class HDNet(nn.Module):
         #self.conv2 = torch.nn.Conv1d(128,2,1)
 
         ### Semantic Segmentation
-        #self.conv_sem1 = torch.nn.Conv1d(256+128+7,128,1) ##Pointfeature + input
+        self.conv_sem_z1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
+        self.bn_sem_z1 = torch.nn.BatchNorm1d(128)
+        self.conv_sem_z2 = torch.nn.Conv1d(128,2,1) ##Pointfeature + input
+
+        self.conv_sem_xy1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
+        self.bn_sem_xy1 = torch.nn.BatchNorm1d(128)
+        self.conv_sem_xy2 = torch.nn.Conv1d(128,2,1) ##Pointfeature + input
+
+        self.conv_line1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
+        self.bn_line1 = torch.nn.BatchNorm1d(128)
+        self.conv_line2 = torch.nn.Conv1d(128,2,1) ##Pointfeature + input
+        
         #self.conv_sem1 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
-        self.conv_sem1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
-        self.conv_sem2 = torch.nn.Conv1d(128,3,1)
-        self.bn_sem1 = torch.nn.BatchNorm1d(128)
-        self.dropout_sem1 = torch.nn.Dropout(0.5)
         '''
         #self.conv_sem3 = torch.nn.Conv1d(128+512+7,128,1) ##Pointfeature + input
         self.conv_sem3 = torch.nn.Conv1d(128+128+7,128,1) ##Pointfeature + input
@@ -109,25 +122,34 @@ class HDNet(nn.Module):
         self.bn_sem3 = torch.nn.BatchNorm1d(128)
         self.dropout_sem3 = torch.nn.Dropout(0.5)
         '''
-        self.conv1 = torch.nn.Conv1d(256*3,256,1)
-        self.conv2 = torch.nn.Conv1d(256,256,1)
-
-        self.bn1 = torch.nn.BatchNorm1d(256)
         
         # Hough voting
         #self.vgen = VotingModule(self.vote_factor, 256+128)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
-        self.vgen = VotingModule(self.vote_factor, 256)
-        self.vgen_normal = VotingModule(self.vote_factor, 256)
+        self.vgen_z = VotingModule(self.vote_factor, 256)
+        self.vgen_xy = VotingModule(self.vote_factor, 256)
+
+        self.vgen_line = VotingModule(self.vote_factor, 256)
+
+        '''
         self.vgen_corner = VotingCornerModule(self.vote_factor, 256)
         #self.vgen_corner = VotingPointModule(self.vote_factor, 256)
         self.vgen_plane = VotingPlaneModule(self.vote_factor, 256)
         #self.vgen = MeanShiftModule(self.vote_factor, 256)    
         self.vgen_voxel = TwoStreamNetDecoder()
-
+        '''
+        
         # Vote aggregation and detection
-        self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-                                   mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
+        self.pnet_z = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+                                     mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=2)
+        self.pnet_xy = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+                                     mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1)
+
+        self.pnet_line = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+                                     mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1)
+        
+        #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
+        #                           mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -146,13 +168,70 @@ class HDNet(nn.Module):
         """
         batch_size = inputs['plane_label'].shape[0]
 
-        end_points = self.backbone_net_center(inputs['point_clouds'], end_points)
-        end_points = self.backbone_net_corner(inputs['point_clouds'], end_points, mode='corner')
+        #end_points = self.backbone_net_center(inputs['point_clouds'], end_points)
+        #end_points = self.backbone_net_corner(inputs['point_clouds'], end_points, mode='corner')
         #end_points = self.backbone_net_sem(inputs['point_clouds'], end_points, mode='sem')
-        end_points = self.backbone_net_sem(inputs['plane_label'], end_points, mode='sem')
-        end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
-        end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points)
+        #end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
+        #end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points, inputs)
+        end_points = self.backbone_net_sem_z(inputs['point_clouds'], end_points)
+        end_points = self.backbone_net_sem_xy(inputs['point_clouds'], end_points, mode='sem')
+        end_points = self.backbone_net_line(inputs['point_clouds'], end_points, mode='line')
+
+        ### Temparaory code here
+        xyz_sem_z = end_points['fp2_xyz']
+        features_sem_z = end_points['fp2_features']
+        end_points['seed_inds'+'_z'] = end_points['fp2_inds']
+        end_points['seed_xyz'+'_z'] = xyz_sem_z
+        end_points['seed_features'+'_z'] = features_sem_z
+
+        xyz_sem_xy = end_points['fp2_xyz'+'sem']
+        features_sem_xy = end_points['fp2_features'+'sem']
+        end_points['seed_inds'+'_xy'] = end_points['fp2_inds'+'sem']
+        end_points['seed_xyz'+'_xy'] = xyz_sem_xy
+        end_points['seed_features'+'_xy'] = features_sem_xy
+
+        xyz_line = end_points['fp2_xyz'+'line']
+        features_line = end_points['fp2_features'+'line']
+        end_points['seed_inds'+'_line'] = end_points['fp2_inds'+'line']
+        end_points['seed_xyz'+'_line'] = xyz_line
+        end_points['seed_features'+'_line'] = features_line
         
+        net_sem_z = F.relu(self.bn_sem_z1(self.conv_sem_z1(features_sem_z)))
+        net_sem_z = self.conv_sem_z2(net_sem_z)
+        end_points["pred_sem_class_z"] = net_sem_z
+
+        net_sem_xy = F.relu(self.bn_sem_xy1(self.conv_sem_xy1(features_sem_xy)))
+        net_sem_xy = self.conv_sem_xy2(net_sem_xy)
+        end_points["pred_sem_class_xy"] = net_sem_xy
+
+        net_line = F.relu(self.bn_line1(self.conv_line1(features_line)))
+        net_line = self.conv_line2(net_line)
+        end_points["pred_sem_class_line"] = net_line
+
+        voted_z, voted_z_feature = self.vgen_z(xyz_sem_z, features_sem_z)
+        voted_z_feature_norm = torch.norm(voted_z_feature, p=2, dim=1)
+        voted_z_feature = voted_z_feature.div(voted_z_feature_norm.unsqueeze(1))
+        end_points['vote_z'] = voted_z
+        end_points['vote_z_feature'] = voted_z_feature
+
+        voted_xy, voted_xy_feature = self.vgen_xy(xyz_sem_xy, features_sem_xy)
+        voted_xy_feature_norm = torch.norm(voted_xy_feature, p=2, dim=1)
+        voted_xy_feature = voted_xy_feature.div(voted_xy_feature_norm.unsqueeze(1))
+        end_points['vote_xy'] = voted_xy
+        end_points['vote_xy_feature'] = voted_xy_feature
+
+        voted_line, voted_line_feature = self.vgen_xy(xyz_line, features_line)
+        voted_line_feature_norm = torch.norm(voted_line_feature, p=2, dim=1)
+        voted_line_feature = voted_line_feature.div(voted_line_feature_norm.unsqueeze(1))
+        end_points['vote_line'] = voted_line
+        end_points['vote_line_feature'] = voted_line_feature
+        
+        end_points = self.pnet_z(voted_z, voted_z_feature, end_points, mode='_z')
+        end_points = self.pnet_xy(voted_xy, voted_xy_feature, end_points, mode='_xy')
+        end_points = self.pnet_line(voted_line, voted_line_feature, end_points, mode='_line')
+        
+        return end_points
+    
         # --------- HOUGH VOTING ---------
         xyz = end_points['fp2_xyz']
         features = end_points['fp2_features']
@@ -170,51 +249,66 @@ class HDNet(nn.Module):
         end_points['seed_features'+'plane'] = features_plane
 
         #features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
-        features_sem = end_points['fp2_features'+'sem']
-        net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_sem))))
-        net_sem = self.conv_sem2(net_sem)
-        end_points["pred_sem_class1"] = net_sem
-
-        normal_xyz, normal_features, normal_cueness = self.vgen_normal(xyz, features_sem)        
-        normal_features_norm = torch.norm(normal_features, p=2, dim=1)
-        normal_features = normal_features.div(normal_features_norm.unsqueeze(1))
-        end_points['normal_xyz'] = normal_xyz
-        end_points['normal_features'] = normal_features
         #end_points['cueness_scores'+'center'] = proposal_cueness
         
-        #newxyz = torch.matmul(xyz, end_points['aug_rot'].float())
-        #newxyz = torch.stack(((newxyz[:,:,0])*(-1*end_points['aug_yz'].unsqueeze(-1).float()), (newxyz[:,:,1])*(-1*end_points['aug_xz'].unsqueeze(-1).float()), newxyz[:,:,2]), 2)
+        newxyz = torch.matmul(xyz, end_points['aug_rot'].float())
+        newxyz = torch.stack(((newxyz[:,:,0])*(-1*end_points['aug_yz'].unsqueeze(-1).float()), (newxyz[:,:,1])*(-1*end_points['aug_xz'].unsqueeze(-1).float()), newxyz[:,:,2]), 2)
 
-        #if inputs['sunrgbd']:
-        #    features_vox = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature'], newxyz)
-        #else:
-        #    features_vox = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature'], newxyz)
-        #features_vox = features_vox.contiguous().transpose(2,1)
+        if inputs['sunrgbd']:
+            features_vox0 = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature0'], newxyz)
+            features_vox1 = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature1'], newxyz)
+            features_vox2 = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature2'], newxyz)
+            features_vox3 = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature3'], newxyz)
+            features_vox4 = pc_util.voxel_to_pt_feature_batch_sunrgbd(end_points['vox_latent_feature4'], newxyz)
+        else:
+            features_vox0 = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature0'], newxyz)
+            features_vox1 = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature1'], newxyz)
+            features_vox2 = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature2'], newxyz)
+            features_vox3 = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature3'], newxyz)
+            features_vox4 = pc_util.voxel_to_pt_feature_batch(end_points['vox_latent_feature4'], newxyz)
+            
+        features_vox = torch.cat((features_vox0[:,:,:128+8], features_vox1, features_vox2, features_vox3, features_vox4), 2).contiguous().transpose(2,1)
     
-        #xyz_sem = end_points['fp2_xyz'+'sem']
-        #features_sem = end_points['fp2_features'+'sem']
-        #end_points['seed_inds'+'sem'] = end_points['fp2_inds'+'sem']
-        #end_points['seed_xyz'+'sem'] = xyz_sem
-        #end_points['seed_features'+'sem'] = features_sem
+        xyz_sem = end_points['fp2_xyz'+'sem']
+        features_sem = end_points['fp2_features'+'sem']
+        end_points['seed_inds'+'sem'] = end_points['fp2_inds'+'sem']
+        end_points['seed_xyz'+'sem'] = xyz_sem
+        end_points['seed_features'+'sem'] = features_sem
 
         #features_combine_center = torch.cat((features, features_corner, features_plane), 1)
         #features_combine_corner = torch.cat((features, features_corner, features_plane), 1)
         #features_combine_plane = torch.cat((features, features_corner, features_plane), 1)
+        #import pdb;pdb.set_trace()
+        features_norm = torch.norm(features, p=2, dim=1)
+        features = features.div(features_norm.unsqueeze(1))
+        features_corner_norm = torch.norm(features_corner, p=2, dim=1)
+        features_corner = features_corner.div(features_corner_norm.unsqueeze(1))
+        features_plane_norm = torch.norm(features_plane, p=2, dim=1)
+        features_plane = features_plane.div(features_plane_norm.unsqueeze(1))
+        features_sem_norm = torch.norm(features_sem, p=2, dim=1)
+        features_sem = features_sem.div(features_sem_norm.unsqueeze(1))
+        features_vox_norm = torch.norm(features_vox, p=2, dim=1)
+        features_vox = features_vox.div(features_vox_norm.unsqueeze(1))
         
+        #features_combine_discriptor = torch.stack((features, features_corner, features_plane, features_vox), 2)
+        features_combine_discriptor = torch.stack((features, features_corner, features_plane, features_sem, features_vox), 2)
         #features_combine_discriptor = torch.stack((features, features_corner, features_plane), 2)
-        #features_combine_discriptor = F.max_pool2d(features_combine_discriptor, (3,1), stride=1).squeeze(2)
+        features_combine_discriptor = F.max_pool2d(features_combine_discriptor, (5,1), stride=1).squeeze(2)
+        #features_combine_discriptor = F.max_pool2d(features_combine_discriptor, (4,1), stride=1).squeeze(2)
+        #features_combine_discriptor = torch.cat((features_combine_discriptor, features_sem), 1)
+        #features_combine_discriptor = F.avg_pool2d(features_combine_discriptor, (3,1), stride=1).squeeze(2)
         
         #features_combine_discriptor = torch.cat((features, features_corner, features_plane), 1)
         #features_combine_discriptor = F.relu(self.bn1(self.conv1(features_combine_discriptor))) 
         #features_combine_discriptor = self.conv2(features_combine_discriptor)
         
-        #features_combine_center = features_combine_discriptor
-        #features_combine_corner = features_combine_discriptor
-        #features_combine_plane = features_combine_discriptor
+        features_combine_center = features_combine_discriptor
+        features_combine_corner = features_combine_discriptor
+        features_combine_plane = features_combine_discriptor
         
-        features_combine_center = features
-        features_combine_corner = features_corner
-        features_combine_plane = features_plane
+        #features_combine_center = features
+        #features_combine_corner = features_corner
+        #features_combine_plane = features_plane
         
         #features_combine_point = torch.cat((features, features_plane.detach(), features_vox.detach()), 1)
         #features_combine_point = torch.cat((features, features_plane, features_vox), 1)
@@ -290,10 +384,12 @@ class HDNet(nn.Module):
         #features_combine_sem_point = torch.cat((features_sem, center_feature), 1)
         #features_combine_sem_corner = torch.cat((features_sem, corner_feature), 1)#corner_feature
         #features_combine_sem_plane = torch.cat((features_sem, plane_feature), 1)#plane_feature
-        '''
-        features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
-        net_sem = F.relu(self.dropout_sem1(self.bn_sem1(self.conv_sem1(features_for_sem))))
+        
+        #features_for_sem = torch.cat((features_combine_sem_point, xyz_plane.transpose(2,1).contiguous()), 1)
+        net_sem = F.relu(self.bn_sem1(self.conv_sem1(features_combine_discriptor)))
         net_sem = self.conv_sem2(net_sem)
+        end_points["pred_sem_class"] = net_sem
+        '''
         end_points["pred_sem_class1"] = net_sem
         features_for_sem = torch.cat((features_combine_sem_corner, xyz_plane.transpose(2,1).contiguous()), 1)
         net_sem = F.relu(self.dropout_sem2(self.bn_sem2(self.conv_sem3(features_for_sem))))

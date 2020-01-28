@@ -324,9 +324,9 @@ def train_one_epoch():
                 continue
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
-        if FLAGS.get_data == True:
-            #optimize_proposal(inputs, end_points)
-            dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TRAIN_DATASET)
+        #if FLAGS.get_data == True:
+        #    #optimize_proposal(inputs, end_points)
+        #    dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TRAIN_DATASET)
         if FLAGS.opt_proposal:
             loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, net=net_obj)
         else:
@@ -373,8 +373,8 @@ def evaluate_one_epoch():
         class2type_map=DATASET_CONFIG.class2type)
     ap_calculator_comb = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
-    ap_calculator_refine = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
-        class2type_map=DATASET_CONFIG.class2type)
+    #ap_calculator_refine = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+    #    class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
     total_correct_sem = 0
     total_sem = 0
@@ -444,6 +444,7 @@ def evaluate_one_epoch():
         #center_iou = compute_iou(end_points['vox_pred1'], end_points['vox_center'])
         #corner_iou = compute_iou(end_points['vox_pred2'], end_points['vox_corner'])
         #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
+        '''
         for i in range(len(batch_data_label['num_instance'])):
             ### For point
             pre_sem = torch.argmax(end_points['pred_sem_class1'][i,...], 0).detach().cpu().numpy()
@@ -457,7 +458,6 @@ def evaluate_one_epoch():
                 total_cls[cls] += np.sum(gt_sem == cls)
             total_correct_sem += np.sum(pre_sem == gt_sem)
             total_sem += len(gt_sem)
-        '''
         for i in range(len(batch_data_label['num_instance'])):
             ### For point
             pre_sem = end_points['pred_sem_class'][i,0,...].detach().cpu().numpy()
@@ -505,36 +505,35 @@ def evaluate_one_epoch():
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='comb')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator_comb.step(batch_pred_map_cls, batch_gt_map_cls)
-
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='refine')
-        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
-        ap_calculator_refine.step(batch_pred_map_cls, batch_gt_map_cls)
         '''
+        #batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='comb', mrf=True)
+        #batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        #ap_calculator_refine.step(batch_pred_map_cls, batch_gt_map_cls)
         # Dump evaluation results for visualization
         if FLAGS.dump_results:# and EPOCH_CNT %10 == 0:
             #if FLAGS.use_plane:
             #    dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
             #else:
             #dump_results(end_points, DUMP_DIR, DATASET_CONFIG)
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='center')
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
+            #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='center')
+            #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
+            #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
             dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='comb')
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='refine')
+            #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='refine')
             
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
-    for cls in DATASET_CONFIG.class2type_room.keys():
-        log_string("For class %s: %f"%(cls, correct_cls[cls] / float(total_cls[cls])))
-    log_string("total acc: %f"%(total_correct_sem / float(total_sem)))
+    #for cls in DATASET_CONFIG.class2type_room.keys():
+    #    log_string("For class %s: %f"%(cls, correct_cls[cls] / float(total_cls[cls])))
+    #log_string("total acc: %f"%(total_correct_sem / float(total_sem)))
     #for cls in ['x', 'y', 'z']:
     #    log_string("For plane class %s: %f"%(cls, correct_cls_angle_plane[cls] / float(total_cls_angle_plane[cls])))
     # Evaluate average precision
+    #log_string('Using center')
     '''
-    log_string('Using center')
     metrics_dict = ap_calculator_center.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
@@ -550,12 +549,7 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator_comb.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
-    log_string('Using refine')
-    metrics_dict = ap_calculator_refine.compute_metrics()
-    for key in metrics_dict:
-        log_string('eval %s: %f'%(key, metrics_dict[key]))
     '''
-        
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
 
@@ -581,15 +575,16 @@ def train(start_epoch):
         if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
             loss = evaluate_one_epoch()
         # Save checkpoint
-        save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                    }
-        try: # with nn.DataParallel() the net is added as a submodule of DataParallel
-            save_dict['model_state_dict'] = net.module.state_dict()
-        except:
-            save_dict['model_state_dict'] = net.state_dict()
-        torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+        if not FLAGS.dump_results:
+            save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+                         'optimizer_state_dict': optimizer.state_dict(),
+                         'loss': loss,
+            }
+            try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+                save_dict['model_state_dict'] = net.module.state_dict()
+            except:
+                save_dict['model_state_dict'] = net.state_dict()
+            torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
 
 if __name__=='__main__':
     train(start_epoch)

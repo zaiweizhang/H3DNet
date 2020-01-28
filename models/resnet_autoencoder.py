@@ -294,7 +294,7 @@ class TwoStreamNet(nn.Module):
             layers.append(block(inplanes, planes))
         return nn.Sequential(*layers)
 
-    def forward(self, x, end_points):
+    def forward(self, x, end_points, inputs):
         x = self.conv1(x)
         # print('conv1', x.shape)
         x = self.layer1(x)
@@ -310,15 +310,19 @@ class TwoStreamNet(nn.Module):
         latent_feature = x
         
         x = self.up1(latent_feature)
+        latent_feature1 = x
         # print('up1', x.shape)
         x = self.up_layer1(x)
         x = self.up2(x)
+        latent_feature2 = x
         # print('up2', x.shape)
         x = self.up_layer2(x)
         x = self.up3(x)
+        latent_feature3 = x
         # print('up3', x.shape)
         x = self.up_layer3(x)
         x = self.up4(x)
+        latent_feature4 = x
         # print('up4' ,x.shape)
         x = self.up_layer4(x)
         pred1 = self.pred_layer(x)
@@ -336,9 +340,16 @@ class TwoStreamNet(nn.Module):
         # print('up4' ,x.shape)
         x = self.up_layer42(x)
         pred2 = self.pred_layer2(x)
+        #if inputs['sunrgbd'] == False:
+        #    pred1 = torch.nn.Sigmoid()(pred1)
+        #    pred2 = torch.nn.Sigmoid()(pred2)
         end_points['vox_pred1'] = pred1
         end_points['vox_pred2'] = pred2
-        end_points['vox_latent_feature'] = latent_feature
+        end_points['vox_latent_feature0'] = latent_feature
+        end_points['vox_latent_feature1'] = latent_feature1
+        end_points['vox_latent_feature2'] = latent_feature2
+        end_points['vox_latent_feature3'] = latent_feature3
+        end_points['vox_latent_feature4'] = latent_feature4
         return end_points
 
 class TwoStreamNetEncoder(nn.Module):

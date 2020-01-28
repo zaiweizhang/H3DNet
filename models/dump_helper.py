@@ -65,35 +65,25 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
     '''
     if not os.path.exists(dump_dir):
         os.system('mkdir %s'%(dump_dir))
-
+        
     # INPUT
     point_clouds = end_points['point_clouds'].cpu().numpy()
     batch_size = point_clouds.shape[0]
     
     # NETWORK OUTPUTS
-    seed_xyz = end_points['seed_xyz'].detach().cpu().numpy() # (B,num_seed,3)
+    seed_xyz_z = end_points['seed_xyz_z'].detach().cpu().numpy() # (B,num_seed,3)
+    seed_xyz_xy = end_points['seed_xyz_xy'].detach().cpu().numpy() # (B,num_seed,3)
+    seed_xyz_line = end_points['seed_xyz_line'].detach().cpu().numpy() # (B,num_seed,3)
+    
     gt_center = end_points['center_label'].cpu().numpy() # (B,MAX_NUM_OBJ,3)
     gt_num = end_points['num_instance'].cpu().numpy() # (B,MAX_NUM_OBJ,3)
     #cueness = end_points['cueness_scores'+mode].detach().cpu().numpy()
     scan_idxes = end_points['scan_idx'].detach().cpu().numpy()
+    '''
     pred_center = end_points['vote_xyz'].detach().cpu().numpy()
     pred_corner = end_points['vote_xyz_corner_center'].detach().cpu().numpy()
     pred_plane = end_points['vote_xyz_plane'].detach().cpu().numpy()
-    '''
-    for i in range(len(seed_xyz)):
-        idx = scan_idxes[i]
-        scan = dataset.scan_names[idx]
-        orig_pc = point_clouds[i,...]
-        sub_pc = seed_xyz[i,...]
-        gt_c = gt_center[i,:gt_num[i],:]
-        if mode=='center':
-            objcue = pred_center[i,...]
-        elif mode=='corner':
-            objcue = pred_corner[i,...]
-        else:
-            objcue = pred_plane[i,...]
-        scipy.io.savemat(dump_dir + mode + scan + '_vote.mat', {'origpc': orig_pc, 'subpc': sub_pc, 'pred': objcue, 'gt': gt_c}) 
-    '''
+
     #if 'vote_xyz' in end_points:
     #aggregated_vote_xyz = end_points['aggregated_vote_xyz'+mode].detach().cpu().numpy()
     #vote_xyz = end_points['vote_xyz'+mode].detach().cpu().numpy() # (B,num_seed,3)
@@ -122,12 +112,63 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
     objectness_label = end_points['objectness_label'+mode].detach().cpu().numpy() # (B,K,)
     objectness_mask = end_points['objectness_mask'+mode].detach().cpu().numpy() # (B,K,)
     sem_cls_label = end_points['sem_cls_label'].detach().cpu().numpy()
+    '''
+    ### MRF Pairwise Matrix
+    '''
+    temppred_pair = end_points['temp'+'refine'].detach().cpu().numpy()    
+    tempidx = end_points['temp'+'idx'].detach().cpu().numpy()
+    tempgt_pair = end_points['gt_mrf'].detach().cpu().numpy()
+    B = temppred_pair.shape[0]
+    N = temppred_pair.shape[-2]
+    pred_mask = np.zeros((B,N,N))
+    gt_pair = np.zeros((B,N,N))
+    pred_pair = np.zeros((B,2,N,N))
+    
+    for i in range(B):
+        for j in range(N):
+            pred_mask[i,j,tempidx[i,j,:]] = 1
+            pred_pair[i,:,j,tempidx[i,j,:]] = temppred_pair[i,:,j,:].T
+            gt_pair[i,j,tempidx[i,j,:]] = tempgt_pair[i,j,:]
+    '''
+    ### Boundary points
+    boundary_gt_z = end_points['sub_point_sem_cls_label'+'_z'].detach().cpu().numpy()
+    boundary_pred_z = end_points['pred_sem_class'+'_z'].detach().cpu().numpy()
+    boundary_gt_xy = end_points['sub_point_sem_cls_label'+'_xy'].detach().cpu().numpy()
+    boundary_pred_xy = end_points['pred_sem_class'+'_xy'].detach().cpu().numpy()
+    boundary_gt_line = end_points['sub_point_sem_cls_label'+'_line'].detach().cpu().numpy()
+    boundary_pred_line = end_points['pred_sem_class'+'_line'].detach().cpu().numpy()
 
+    gt_center_z = end_points['surface_center_gt_z'].detach().cpu().numpy()
+    gt_sem_z = end_points['surface_sem_gt_z'].detach().cpu().numpy()
+    gt_mask_z = end_points['surface_mask_gt_z'].detach().cpu().numpy()
+
+    gt_center_xy = end_points['surface_center_gt_xy'].detach().cpu().numpy()
+    gt_sem_xy = end_points['surface_sem_gt_xy'].detach().cpu().numpy()
+    gt_mask_xy = end_points['surface_mask_gt_xy'].detach().cpu().numpy()
+
+    gt_center_line = end_points['surface_center_gt_line'].detach().cpu().numpy()
+    gt_sem_line = end_points['surface_sem_gt_line'].detach().cpu().numpy()
+    gt_mask_line = end_points['surface_mask_gt_line'].detach().cpu().numpy()
+
+    #gt_ind_z = end_points['aggregated_vote_inds_z'].detach().cpu().numpy()
+    #gt_ind_xy = end_points['aggregated_vote_inds_xy'].detach().cpu().numpy()
+    
+    pred_center_z = end_points['center_z'].detach().cpu().numpy()
+    pred_center_xy = end_points['center_xy'].detach().cpu().numpy()
+    pred_center_line = end_points['center_line'].detach().cpu().numpy()
+    
+    pred_size_z = end_points['size_residuals_z'].detach().cpu().numpy()
+    pred_size_xy = end_points['size_residuals_xy'].detach().cpu().numpy()
+
+    pred_sem_z = end_points['sem_cls_scores_z'].detach().cpu().numpy()
+    pred_sem_xy = end_points['sem_cls_scores_xy'].detach().cpu().numpy()
+    pred_sem_line = end_points['sem_cls_scores_line'].detach().cpu().numpy()
+    
     # pred
     # pc = point_clouds[i,:,:]
     # vote_xyz # B, 1024, 3
     # aggregated_vote_xyza # is the offset, dep
-    num_proposal = pred_center.shape[1]
+    #num_proposal = pred_center.shape[1]
     for i in range(batch_size):
         idx = scan_idxes[i]
         scan = dataset.scan_names[idx]
@@ -143,6 +184,7 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
         box_gt_list = []
         obb_pred_list = []
         obb_gt_list = []
+        '''
         for j in range(num_proposal):
             obb = config.param2obb2(pred_center[i,j,0:3], pred_heading_class[i,j], pred_heading_residual[i,j],
                             pred_size_class[i,j], pred_size_residual[i,j])
@@ -161,9 +203,14 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
             box_gt_list.append(box)
             #lineset_gt_box_list.append(myutils.create_lineset_from_points(box, [1, 0, 0]))
         obb_gt_mat = np.array(obb_gt_list)
-        scipy.io.savemat(dump_dir + mode + scan + '_init.mat', {'pred': obb_pred_mat, 'objectness': objectness_scores[i,...]}) 
-        scipy.io.savemat(dump_dir + mode + scan + '_gt.mat', {'gt': obb_gt_mat}) 
-
+        '''
+        #scipy.io.savemat(dump_dir + mode + scan + '_init.mat', {'pred': obb_pred_mat, 'objectness': objectness_scores[i,...]}) 
+        #scipy.io.savemat(dump_dir + mode + scan + '_gt.mat', {'gt': obb_gt_mat})
+        scipy.io.savemat(dump_dir + mode + scan + '_boundary_z.mat', {'gt': boundary_gt_z[i,...], 'pred': boundary_pred_z[i,...], 'origpc': point_clouds[i,...], 'seedpc': seed_xyz_z[i,...], 'gt_center': gt_center_z[i,...], 'gt_sem': gt_sem_z[i,...], 'gt_mask': gt_mask_z[i,...], 'pred_center': pred_center_z[i,...], 'pred_sem': pred_sem_z[i,...], 'pred_size': pred_size_z[i,...]})
+        scipy.io.savemat(dump_dir + mode + scan + '_boundary_xy.mat', {'gt': boundary_gt_xy[i,...], 'pred': boundary_pred_xy[i,...], 'origpc': point_clouds[i,...], 'seedpc': seed_xyz_xy[i,...], 'gt_center': gt_center_xy[i,...], 'gt_sem': gt_sem_xy[i,...], 'gt_mask': gt_mask_xy[i,...], 'pred_center': pred_center_xy[i,...], 'pred_sem': pred_sem_xy[i,...], 'pred_size': pred_size_xy[i,...]})
+        scipy.io.savemat(dump_dir + mode + scan + '_boundary_line.mat', {'gt': boundary_gt_line[i,...], 'pred': boundary_pred_line[i,...], 'origpc': point_clouds[i,...], 'seedpc': seed_xyz_line[i,...], 'gt_center': gt_center_line[i,...], 'gt_sem': gt_sem_line[i,...], 'gt_mask': gt_mask_line[i,...], 'pred_center': pred_center_line[i,...], 'pred_sem': pred_sem_line[i,...]})
+        #scipy.io.savemat(dump_dir + mode + scan + '_mrf.mat', {'gt': gt_pair[i,...], 'pred': pred_pair[i,...], 'mask': pred_mask[i,...]})
+        '''
         # uncomment to visualize
         # Dump predicted bounding boxes
         objectness_prob = softmax(objectness_scores[i,:,:])[:,1] # (K,)
@@ -178,7 +225,7 @@ def dump_results(end_points, dump_dir, config, dataset, mode='center'):
 
         votenet_pred_nms_arr = np.array(obb_pred_nms_list)
         np.save(dump_dir + mode + scan + '_nms.npy', votenet_pred_nms_arr)
-        
+        '''
 def dump_results_old(end_points, dump_dir, config, inference_switch=False):
     ''' Dump results.
 

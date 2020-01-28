@@ -30,8 +30,15 @@ from sklearn import linear_model
 DC = ScannetDatasetConfig()
 MAX_NUM_OBJ = 128
 MEAN_COLOR_RGB = np.array([109.8, 97.2, 83.8])
-
+DIST_THRESH = 0.2#0.1
+VAR_THRESH = 1e-2
+CENTER_THRESH = 0.1
 LOWER_THRESH = 1e-6
+NUM_POINT = 100
+NUM_POINT_LINE = 10
+LINE_THRESH = 0.2#0.1
+MIND_THRESH = 0.1
+
 def local_regression_plane_ransac(neighborhood):
     """
     Computes parameters for a local regression plane using RANSAC
@@ -109,7 +116,7 @@ def params2bbox(center, xsize, ysize, zsize, angle):
         center - vx + vy - vz, center - vx + vy + vz,
         center + vx - vy - vz, center + vx - vy + vz,
         center + vx + vy - vz, center + vx + vy + vz])
-    return bbox
+    return bbox, (center - vx - vy - vz)[0], (center - vx - vy - vz)[1], (center - vx - vy - vz)[2], (center + vx + vy + vz)[0], (center + vx + vy + vz)[1], (center + vx + vy + vz)[2],
 
 def pdist2(x1, x2):
     """ Computes the squared Euclidean distance between all pairs """
@@ -149,6 +156,41 @@ def find_idx(targetbb, selected_centers, selected_centers_support, selected_cent
         if idx not in bsupport_idx:
             bsupport_idx.append(int(idx2bb[idx]))
     return support_idx, bsupport_idx
+
+def get_linesel(points, xmin, xmax, ymin, ymax):
+    sel1 = np.abs(points[:,0] - xmin) < LINE_THRESH
+    sel2 = np.abs(points[:,0] - xmax) < LINE_THRESH
+    sel3 = np.abs(points[:,1] - ymin) < LINE_THRESH
+    sel4 = np.abs(points[:,1] - ymax) < LINE_THRESH
+    return sel1, sel2, sel3, sel4
+
+### Also remove the redundent points
+SWEEP_RATIO = 0.01
+SWEEP_RADIUS = 0.02
+def sweep(points, taxis, tcons, saxis, range_min, range_max):
+    sel = np.zeros((points.shape[0]))
+    smin = range_min
+    while smin <= range_max:
+        tempsel = np.abs(points[:,saxis] - smin) < SWEEP_RADIUS
+        tempind = np.argmin(np.abs(points[tempsel,taxis] - tcons))
+        if np.abs(points[tempsel,:][tempind,taxis] - tcons) < LINE_THRESH:
+            sel[tempsel][tempind] = 1.0
+    return sel
+    
+### Sweep based
+def get_linesel_sweep(points, xmin, xmax, ymin, ymax):
+    sel1 = sweep(points, 0, xmin, 1, ymin, ymax)
+    sel2 = sweep(points, 0, xmax, 1, ymin, ymax)
+    sel3 = sweep(points, 1, ymin, 0, xmin, xmax)
+    sel4 = sweep(points, 1, ymax, 0, xmin, xmax)
+    return sel1, sel2, sel3, sel4
+
+def get_linesel2(points, ymin, ymax, zmin, zmax, axis=0):
+    #sel3 = sweep(points, axis, ymax, 2, zmin, zmax)
+    #sel4 = sweep(points, axis, ymax, 2, zmin, zmax)
+    sel3 = np.abs(points[:,axis] - ymin) < LINE_THRESH
+    sel4 = np.abs(points[:,axis] - ymax) < LINE_THRESH
+    return sel3, sel4
 
 class ScannetDetectionDataset(Dataset):
        
@@ -209,8 +251,7 @@ class ScannetDetectionDataset(Dataset):
             scan_idx: int scan index in scan_names list
             pcl_color: unused
         """
-        
-        scan_name = self.scan_names[idx]        
+        scan_name = self.scan_names[idx]
         mesh_vertices = np.load(os.path.join(self.data_path, scan_name)+'_vert.npy')
         plane_vertices = np.load(os.path.join(self.data_path, scan_name)+'_plane.npy')
         #plane_vertices[:,:4] = plane_vertices[:,:4] / np.linalg.norm(plane_vertices[:,:3], axis=1, keepdims=True) ## Normalize the data
@@ -219,12 +260,11 @@ class ScannetDetectionDataset(Dataset):
         if self.use_angle:
             meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_angle_40cls.npy') ### Need to change the name here
             ### Do not use data with angle for now
-            point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
+            #point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls_floor.npy') ### Need to change the name here
         else:
             ### With ori
             meta_vertices = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls.npy') ### Need to change the name here
-            point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls_floor.npy') ### Need to change the name here
-        
+            #point_layout_normal = np.load(os.path.join(self.data_path, scan_name)+'_all_noangle_40cls_floor.npy') ### Need to change the name here
         ### Load voxel data
         sem_vox=np.load(os.path.join(self.data_path_vox, scan_name+'_vox_0.06_sem.npy'))
         vox = np.array(sem_vox>0,np.float32)
@@ -297,7 +337,7 @@ class ScannetDetectionDataset(Dataset):
         semantic_labels = semantic_labels[choices]
         plane_vertices = plane_vertices[choices]
         meta_vertices = meta_vertices[choices]
-        point_layout_normal = point_layout_normal[choices]
+        #point_layout_normal = point_layout_normal[choices]
         
         pcl_color = pcl_color[choices]
 
@@ -347,10 +387,25 @@ class ScannetDetectionDataset(Dataset):
         point_votes_corner1 = np.zeros([self.num_points, 3])
         point_votes_corner2 = np.zeros([self.num_points, 3])
         point_votes_mask = np.zeros(self.num_points)
+
+        point_boundary_mask_z = np.zeros(self.num_points)
+        point_boundary_mask_xy = np.zeros(self.num_points)
+        point_boundary_offset_z = np.zeros([self.num_points, 3])
+        point_boundary_offset_xy = np.zeros([self.num_points, 3])
+        point_boundary_sem_z = np.zeros([self.num_points, 3+2+1])
+        point_boundary_sem_xy = np.zeros([self.num_points, 3+1+1])
+
+        point_line_mask = np.zeros(self.num_points)
+        point_line_offset = np.zeros([self.num_points, 3])
+        point_line_sem = np.zeros([self.num_points, 3+1])
+        
+        point_center_mask_z = np.zeros(self.num_points)
+        point_center_mask_xy = np.zeros(self.num_points)
+
         point_layout_mask = np.ones(self.num_points)
         point_layout_in_mask = np.zeros(self.num_points)
         point_layout_sem = np.zeros(self.num_points)
-        #point_layout_normal = np.zeros([self.num_points,3])
+        point_layout_normal = np.zeros([self.num_points,3])
         point_sem_label = np.zeros(self.num_points)
         
         ### Plane Patches
@@ -382,9 +437,10 @@ class ScannetDetectionDataset(Dataset):
         for i_instance in np.unique(instance_labels):            
             # find all points belong to that instance
             ind = np.where(instance_labels == i_instance)[0]
-            if len(ind) <= 10:
-                continue
+            #if len(ind) <= 10:
+            #    continue
             # find the layout related parameters
+            '''
             if semantic_labels[ind[0]] in DC.nyu40ids_room:
                 meta = meta_vertices[ind[0]]
                 #import pdb;pdb.set_trace()
@@ -395,7 +451,7 @@ class ScannetDetectionDataset(Dataset):
                 #coeff, inlier_ind = local_regression_plane_ransac(points)
                 #point_layout_normal[ind,:] = coeff
                 #point_layout_in_mask[ind[inlier_ind]] = 1.0
-                
+            '''
             if semantic_labels[ind[0]] in DC.nyu40ids:
                 x = point_cloud[ind,:3]
                 ### Meta information here
@@ -406,8 +462,358 @@ class ScannetDetectionDataset(Dataset):
                 center = meta[:3]
 
                 ### Corners
-                corners = params2bbox(center, meta[3], meta[4], meta[5], meta[6])
+                corners, xmin, ymin, zmin, xmax, ymax, zmax = params2bbox(center, meta[3], meta[4], meta[5], meta[6])
                 
+                ###Get bb planes and boundary points
+                plane_lower_temp = np.array([0,0,1,-corners[6,-1]])
+                para_points = np.array([corners[1], corners[3], corners[5], corners[7]])
+                newd = np.sum(para_points * plane_lower_temp[:3], 1)
+                if check_upright(para_points) and plane_lower_temp[0]+plane_lower_temp[1] < LOWER_THRESH:
+                    plane_lower = np.array([0,0,1,plane_lower_temp[-1]]) 
+                    plane_upper = np.array([0,0,1,-np.mean(newd)])
+                else:
+                    import pdb;pdb.set_trace()
+                    print ("error with upright")
+                if check_z(plane_upper, para_points) == False:
+                    import pdb;pdb.set_trace()
+                ### Get the boundary points here
+                #alldist = np.abs(np.sum(point_cloud[:,:3]*plane_lower[:3], 1) + plane_lower[-1])
+                alldist = np.abs(np.sum(x*plane_lower[:3], 1) + plane_lower[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,0] >= xmin) & (point_cloud[:,0] <= xmax) & (point_cloud[:,1] >= ymin) & (point_cloud[:,1] <= ymax)
+
+                ## Get lower four lines
+                line_sel1, line_sel2, line_sel3, line_sel4 = get_linesel(x[sel], xmin, xmax, ymin, ymax)
+                if np.sum(line_sel1) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel1]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel1], axis=0)
+                    linecenter[1] = (ymin+ymax)/2.0
+                    point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                    point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel2) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel2]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel2], axis=0)
+                    linecenter[1] = (ymin+ymax)/2.0
+                    point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                    point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel3) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel3]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel3], axis=0)
+                    linecenter[0] = (xmin+xmax)/2.0
+                    point_line_offset[ind[sel][line_sel3]] = linecenter - x[sel][line_sel3]
+                    point_line_sem[ind[sel][line_sel3]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel4) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel4]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel4], axis=0)
+                    linecenter[0] = (xmin+xmax)/2.0
+                    point_line_offset[ind[sel][line_sel4]] = linecenter - x[sel][line_sel4]
+                    point_line_sem[ind[sel][line_sel4]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([(xmin+xmax)/2.0, (ymin+ymax)/2.0, np.mean(x[sel][:,2])])
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_z[sel_global] = 1.0
+                    point_boundary_sem_z[sel_global] = np.array([center[0], center[1], center[2], xmax - xmin, ymax - ymin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_z[sel_global] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_z[sel_center] = 1.0
+                    
+                ### Check for middle z surfaces
+                [count, val] = np.histogram(alldist, bins=20)
+                mind_middle = val[np.argmax(count)]
+                sel_pre = np.copy(sel)
+                sel = np.abs(alldist - mind_middle) < DIST_THRESH
+                if np.abs(np.mean(x[sel_pre][:,2]) - np.mean(x[sel][:,2])) > MIND_THRESH:
+                    ### Do not use line for middle surfaces
+                    """
+                    line_sel1, line_sel2, line_sel3, line_sel4 = get_linesel(x[sel], xmin, xmax, ymin, ymax)
+                    if np.sum(line_sel1) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel1]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel1], axis=0)
+                        linecenter[1] = (ymin+ymax)/2.0
+                        point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                        point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    if np.sum(line_sel2) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel2]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel2], axis=0)
+                        linecenter[1] = (ymin+ymax)/2.0
+                        point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                        point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    if np.sum(line_sel3) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel3]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel3], axis=0)
+                        linecenter[0] = (xmin+xmax)/2.0
+                        point_line_offset[ind[sel][line_sel3]] = linecenter - x[sel][line_sel3]
+                        point_line_sem[ind[sel][line_sel3]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    if np.sum(line_sel4) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel4]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel4], axis=0)
+                        linecenter[0] = (xmin+xmax)/2.0
+                        point_line_offset[ind[sel][line_sel4]] = linecenter - x[sel][line_sel4]
+                        point_line_sem[ind[sel][line_sel4]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    """
+                    if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                        #center = np.mean(x[sel], 0)
+                        center = np.array([(xmin+xmax)/2.0, (ymin+ymax)/2.0, np.mean(x[sel][:,2])])
+                        sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                        sel_global = ind[sel]
+                        point_boundary_mask_z[sel_global] = 1.0
+                        point_boundary_sem_z[sel_global] = np.array([center[0], center[1], center[2], xmax - xmin, ymax - ymin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                        point_boundary_offset_z[sel_global] = center - x[sel]
+                        sel_center = sel_global[sel_center]
+                        point_center_mask_z[sel_center] = 1.0
+                    
+                ### Get the boundary points here
+                alldist = np.abs(np.sum(x*plane_upper[:3], 1) + plane_upper[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,0] >= xmin) & (point_cloud[:,0] <= xmax) & (point_cloud[:,1] >= ymin) & (point_cloud[:,1] <= ymax)
+
+                ## Get upper four lines
+                line_sel1, line_sel2, line_sel3, line_sel4 = get_linesel(x[sel], xmin, xmax, ymin, ymax)
+                if np.sum(line_sel1) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel1]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel1], axis=0)
+                    linecenter[1] = (ymin+ymax)/2.0
+                    point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                    point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel2) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel2]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel2], axis=0)
+                    linecenter[1] = (ymin+ymax)/2.0
+                    point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                    point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel3) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel3]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel3], axis=0)
+                    linecenter[0] = (xmin+xmax)/2.0
+                    point_line_offset[ind[sel][line_sel3]] = linecenter - x[sel][line_sel3]
+                    point_line_sem[ind[sel][line_sel3]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel4) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel4]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel4], axis=0)
+                    linecenter[0] = (xmin+xmax)/2.0
+                    point_line_offset[ind[sel][line_sel4]] = linecenter - x[sel][line_sel4]
+                    point_line_sem[ind[sel][line_sel4]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([(xmin+xmax)/2.0, (ymin+ymax)/2.0, np.mean(x[sel][:,2])])
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_z[sel_global] = 1.0
+                    point_boundary_sem_z[sel_global] = np.array([center[0], center[1], center[2], xmax - xmin, ymax - ymin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_z[sel_global] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_z[sel_center] = 1.0
+                    
+                v1 = corners[3] - corners[2]
+                v2 = corners[2] - corners[0]
+                cp = np.cross(v1, v2)
+                d = -np.dot(cp,corners[0])
+                a,b,c = cp
+                plane_left_temp = np.array([a, b, c, d])
+                para_points = np.array([corners[4], corners[5], corners[6], corners[7]])
+                ### Normalize xy here
+                plane_left_temp /= np.linalg.norm(plane_left_temp[:3])
+                newd = np.sum(para_points * plane_left_temp[:3], 1)
+                if plane_left_temp[2] < LOWER_THRESH:
+                    plane_left = plane_left_temp#np.array([cls,res,tempsign,plane_left_temp[-1]]) 
+                    plane_right = np.array([plane_left_temp[0], plane_left_temp[1], plane_left_temp[2], -np.mean(newd)])
+                else:
+                    import pdb;pdb.set_trace()
+                    print ("error with upright")
+                ### Get the boundary points here
+                alldist = np.abs(np.sum(x*plane_left[:3], 1) + plane_left[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,2] >= zmin) & (point_cloud[:,2] <= zmax) & (point_cloud[:,1] >= ymin) & (point_cloud[:,1] <= ymax)
+                ## Get upper four lines
+                line_sel1, line_sel2 = get_linesel2(x[sel], ymin, ymax, zmin, zmax, axis=1)
+                if np.sum(line_sel1) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel1]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel1], axis=0)
+                    linecenter[2] = (zmin+zmax)/2.0
+                    point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                    point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel2) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel2]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel2], axis=0)
+                    linecenter[2] = (zmin+zmax)/2.0
+                    point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                    point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_xy[sel_global] = 1.0
+                    point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_xy[sel_global] = center - x[sel]
+                    #point_boundary_offset_xy[sel] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_xy[sel_center] = 1.0
+
+                [count, val] = np.histogram(alldist, bins=20)
+                mind_middle = val[np.argmax(count)]
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,2] >= zmin) & (point_cloud[:,2] <= zmax) & (point_cloud[:,1] >= ymin) & (point_cloud[:,1] <= ymax)
+                ## Get upper four lines
+                sel_pre = np.copy(sel)
+                sel = np.abs(alldist - mind_middle) < DIST_THRESH
+                if np.abs(np.mean(x[sel_pre][:,0]) - np.mean(x[sel][:,0])) > MIND_THRESH:
+                    ### Do not use line for middle surfaces
+                    """
+                    line_sel1, line_sel2 = get_linesel2(x[sel], ymin, ymax, zmin, zmax, axis=1)
+                    if np.sum(line_sel1) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel1]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel1], axis=0)
+                        linecenter[2] = (zmin+zmax)/2.0
+                        point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                        point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    if np.sum(line_sel2) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel2]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel2], axis=0)
+                        linecenter[2] = (zmin+zmax)/2.0
+                        point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                        point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    """
+                    if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                        #center = np.mean(x[sel], 0)
+                        center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                        sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                        sel_global = ind[sel]
+                        point_boundary_mask_xy[sel_global] = 1.0
+                        point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                        point_boundary_offset_xy[sel_global] = center - x[sel]
+                        #point_boundary_offset_xy[sel] = center - x[sel]
+                        sel_center = sel_global[sel_center]
+                        point_center_mask_xy[sel_center] = 1.0
+                    
+                ### Get the boundary points here
+                alldist = np.abs(np.sum(x*plane_right[:3], 1) + plane_right[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,2] >= zmin) & (point_cloud[:,2] <= zmax) & (point_cloud[:,1] >= ymin) & (point_cloud[:,1] <= ymax)
+                line_sel1, line_sel2 = get_linesel2(x[sel], ymin, ymax,  zmin, zmax, axis=1)
+                if np.sum(line_sel1) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel1]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel1], axis=0)
+                    linecenter[2] = (zmin+zmax)/2.0
+                    point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                    point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(line_sel2) > NUM_POINT_LINE:
+                    point_line_mask[ind[sel][line_sel2]] = 1.0
+                    linecenter = np.mean(x[sel][line_sel2], axis=0)
+                    linecenter[2] = (zmin+zmax)/2.0
+                    point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                    point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_xy[sel_global] = 1.0
+                    point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_xy[sel_global] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_xy[sel_center] = 1.0
+
+                #plane_front_temp = leastsq(residuals, [0,1,0,0], args=(None, np.array([corners[0], corners[1], corners[4], corners[5]]).T))[0]
+                v1 = corners[0] - corners[4]
+                v2 = corners[4] - corners[5]
+                cp = np.cross(v1, v2)
+                d = -np.dot(cp,corners[5])
+                a,b,c = cp
+                plane_front_temp = np.array([a, b, c, d])
+                para_points = np.array([corners[2], corners[3], corners[6], corners[7]])
+                plane_front_temp /= np.linalg.norm(plane_front_temp[:3])
+                newd = np.sum(para_points * plane_front_temp[:3], 1)
+                if plane_front_temp[2] < LOWER_THRESH:
+                    plane_front = plane_front_temp#np.array([cls,res,tempsign,plane_front_temp[-1]]) 
+                    plane_back = np.array([plane_front_temp[0], plane_front_temp[1], plane_front_temp[2], -np.mean(newd)])
+                else:
+                    import pdb;pdb.set_trace()
+                    print ("error with upright")
+                ### Get the boundary points here
+                alldist = np.abs(np.sum(x*plane_front[:3], 1) + plane_front[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,0] >= xmin) & (point_cloud[:,0] <= xmax) & (point_cloud[:,2] >= zmin) & (point_cloud[:,2] <= zmax)
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_xy[sel_global] = 1.0
+                    point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_xy[sel_global] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_xy[sel_center] = 1.0
+
+                [count, val] = np.histogram(alldist, bins=20)
+                mind_middle = val[np.argmax(count)]
+                sel_pre = np.copy(sel)
+                sel = np.abs(alldist - mind_middle) < DIST_THRESH
+                if np.abs(np.mean(x[sel_pre][:,1]) - np.mean(x[sel][:,1])) > MIND_THRESH:
+                    ### Do not use line for middle surfaces
+                    """
+                    line_sel1, line_sel2 = get_linesel2(x[sel], xmin, xmax, zmin, zmax, axis=0)
+                    if np.sum(line_sel1) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel1]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel1], axis=0)
+                        linecenter[2] = (zmin+zmax)/2.0
+                        point_line_offset[ind[sel][line_sel1]] = linecenter - x[sel][line_sel1]
+                        point_line_sem[ind[sel][line_sel1]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    if np.sum(line_sel2) > NUM_POINT_LINE:
+                        point_line_mask[ind[sel][line_sel2]] = 1.0
+                        linecenter = np.mean(x[sel][line_sel2], axis=0)
+                        linecenter[2] = (zmin+zmax)/2.0
+                        point_line_offset[ind[sel][line_sel2]] = linecenter - x[sel][line_sel2]
+                        point_line_sem[ind[sel][line_sel2]] = np.array([linecenter[0], linecenter[1], linecenter[2], np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    """
+                    if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                        #center = np.mean(x[sel], 0)
+                        center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                        sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                        sel_global = ind[sel]
+                        point_boundary_mask_xy[sel_global] = 1.0
+                        point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                        point_boundary_offset_xy[sel_global] = center - x[sel]
+                        sel_center = sel_global[sel_center]
+                        point_center_mask_xy[sel_center] = 1.0
+                    
+                ### Get the boundary points here
+                alldist = np.abs(np.sum(x*plane_back[:3], 1) + plane_back[-1])
+                mind = np.min(alldist)
+                #[count, val] = np.histogram(alldist, bins=20)
+                #mind = val[np.argmax(count)]
+                sel = np.abs(alldist - mind) < DIST_THRESH
+                if np.sum(sel) > NUM_POINT and np.var(alldist[sel]) < VAR_THRESH:
+                    #sel = (np.abs(alldist - mind) < DIST_THRESH) & (point_cloud[:,0] >= xmin) & (point_cloud[:,0] <= xmax) & (point_cloud[:,2] >= zmin) & (point_cloud[:,2] <= zmax)
+                    #center = np.mean(x[sel], 0)
+                    center = np.array([np.mean(x[sel][:,0]), np.mean(x[sel][:,1]), (zmin+zmax)/2.0])
+                    #point_boundary_offset_xy[sel] = center - x[sel]
+                    sel_center = np.sqrt(np.sum(np.square(x[sel] - center), 1)) < CENTER_THRESH
+                    sel_global = ind[sel]
+                    point_boundary_mask_xy[sel_global] = 1.0
+                    point_boundary_sem_xy[sel_global] = np.array([center[0], center[1], center[2], zmax - zmin, np.where(DC.nyu40ids == meta_vertices[ind[0],-1])[0][0]])
+                    point_boundary_offset_xy[sel_global] = center - x[sel]
+                    sel_center = sel_global[sel_center]
+                    point_center_mask_xy[sel_center] = 1.0
+
                 point_votes[ind, :] = center - x
                 point_votes_mask[ind] = 1.0
                 point_sem_label[ind] = DC.nyu40id2class_sem[meta[-1]]
@@ -466,7 +872,8 @@ class ScannetDetectionDataset(Dataset):
 
         target_bboxes_mask[0:num_instance] = 1
         target_bboxes[0:num_instance,:6] = obj_meta[:,0:6]
-        gt_bboxes[0:num_instance,:] = obj_meta[:,0:7]
+        #gt_bboxes[0:num_instance,:] = obj_meta[:,0:7]
+        gt_bboxes[0:num_instance,:] = np.concatenate((obj_meta[:,0:6], np.expand_dims(obj_meta[:,-1], -1)), 1)
 
         for i in range(num_instance):
             ### Perturb x y z by 0.5 to 1.0
@@ -549,6 +956,20 @@ class ScannetDetectionDataset(Dataset):
         ret_dict['point_sem_cls_label'] = point_sem_label.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
 
+        ret_dict['point_boundary_mask_z'] = point_boundary_mask_z.astype(np.float32)
+        ret_dict['point_boundary_mask_xy'] = point_boundary_mask_xy.astype(np.float32)
+        ret_dict['point_boundary_offset_z'] = point_boundary_offset_z.astype(np.float32)
+        ret_dict['point_boundary_offset_xy'] = point_boundary_offset_xy.astype(np.float32)
+        ret_dict['point_boundary_sem_z'] = point_boundary_sem_z.astype(np.float32)
+        ret_dict['point_boundary_sem_xy'] = point_boundary_sem_xy.astype(np.float32)
+
+        ret_dict['point_line_mask'] = point_line_mask.astype(np.float32)
+        ret_dict['point_line_offset'] = point_line_offset.astype(np.float32)
+        ret_dict['point_line_sem'] = point_line_sem.astype(np.float32)
+        
+        ret_dict['point_center_mask_z'] = point_center_mask_z.astype(np.float32)
+        ret_dict['point_center_mask_xy'] = point_center_mask_xy.astype(np.float32)
+        
         ret_dict['point_layout_mask'] = point_layout_mask.astype(np.int64)
         ret_dict['point_layout_in_mask'] = point_layout_in_mask.astype(np.float32)
         ret_dict['point_layout_normal'] = point_layout_normal.astype(np.float32)
@@ -695,7 +1116,8 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
     pc_util.write_ply(label[mask==1,:], 'gt_centroids{}.ply'.format(name))
 
     
-if __name__=='__main__': 
+if __name__=='__main__':
+    '''
     dset_train = ScannetDetectionDataset(split_set='train', use_height=True, num_points=40000, augment=False, use_angle=False)
     dset_val = ScannetDetectionDataset(split_set='val', use_height=True, num_points=40000, augment=False, use_angle=False)
     for i in range(len(dset_train.scan_names)):
@@ -705,19 +1127,27 @@ if __name__=='__main__':
         dset_val.__getitem__(i)
         print ("finished val"+ str(i))
     sys.exit(0)
-    
-    dset = ScannetDetectionDataset(use_height=True, num_points=40000, augment=False, use_angle=False)
-    for i_example in range(1513):
+    '''
+    import scipy.io as sio
+    dset = ScannetDetectionDataset(split_set='val', use_height=True, num_points=40000, augment=False, use_angle=False)
+    for i_example in range(len(dset.scan_names)):
         example = dset.__getitem__(i_example)
         print (i_example)
+        
         print (np.unique(example['plane_votes_x'][:,0]))
         print (np.unique(example['plane_votes_x'][:,1]))
         print (np.unique(example['plane_votes_y'][:,0]))
         print (np.unique(example['plane_votes_y'][:,1]))
-        pc_util.write_ply(example['point_clouds'], 'pc_{}.ply'.format(i_example))
-        pc_util.write_ply_color_multi(example['point_clouds'][:,:3], example['point_layout_normal'][:,:3], 'pc_normal_{}.ply'.format(str(i_example)))
-        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_layout_sem'], 'pc_sem_room_{}.ply'.format(str(i_example)),  3)
-        pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,0]+1, 'pc_sem_{}.ply'.format(str(i_example)),  38)
+        #sio.savemat('/scratch/cluster/zaiwei92/scannet_data/data_{}.mat'.format(dset.scan_names[i_example]), {'pc': example['point_clouds'], 'boundary': example['point_clouds'][example['point_boundary_mask']==1,0:3]})
+        pc_util.write_ply(example['point_clouds'], '/scratch/cluster/zaiwei92/scannet_data/pc_{}.ply'.format(i_example))
+        pc_util.write_ply(example['point_clouds'][example['point_line_mask']==1,0:3], '/scratch/cluster/zaiwei92/scannet_data/pc_new_obj_line{}.ply'.format(i_example))
+        pc_util.write_ply(example['point_clouds'][example['point_boundary_mask_z']==1,0:3], '/scratch/cluster/zaiwei92/scannet_data/pc_new_obj_boundary_z{}.ply'.format(i_example))
+        pc_util.write_ply(example['point_clouds'][example['point_boundary_mask_xy']==1,0:3], '/scratch/cluster/zaiwei92/scannet_data/pc_new_obj_boundary_xy{}.ply'.format(i_example))
+        pc_util.write_ply(example['point_clouds'][example['point_center_mask_z']==1,0:3], '/scratch/cluster/zaiwei92/scannet_data/pc_obj_center_z{}.ply'.format(i_example))
+        pc_util.write_ply(example['point_clouds'][example['point_center_mask_xy']==1,0:3], '/scratch/cluster/zaiwei92/scannet_data/pc_obj_center_xy{}.ply'.format(i_example))
+        #pc_util.write_ply_color_multi(example['point_clouds'][:,:3], example['point_layout_normal'][:,:3], 'pc_normal_{}.ply'.format(str(i_example)))
+        #pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_layout_sem'][:,0], 'pc_sem_room_{}.ply'.format(str(i_example)),  3)
+        #pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,0]+1, 'pc_sem_{}.ply'.format(str(i_example)),  38)
         import pdb;pdb.set_trace()
         continue
         viz_votes(example['point_clouds'], example['vote_label'],

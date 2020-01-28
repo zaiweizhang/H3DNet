@@ -41,7 +41,7 @@ def softmax(x):
     probs /= np.sum(probs, axis=len(shape)-1, keepdims=True)
     return probs
 
-def parse_predictions(end_points, config_dict, mode='opt'):
+def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
     """ Parse predictions to OBB parameters and suppress overlapping boxes
     
     Args:
@@ -102,9 +102,12 @@ def parse_predictions(end_points, config_dict, mode='opt'):
                 if len(pc_in_box) < 5:
                     nonempty_box_mask[i,j] = 0
         # -------------------------------------
-
-    obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
+    if mrf == True:
+        obj_logits = end_points['objectness_scores'+'mrf'].detach().cpu().numpy()
+    else:
+        obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
     obj_prob = softmax(obj_logits)[:,:,1] # (B,K)
+    #import pdb;pdb.set_trace()
     if not config_dict['use_3d_nms']:
         # ---------- NMS input: pred_with_prob in (B,K,7) -----------
         pred_mask = np.zeros((bsize, K))
