@@ -2,7 +2,6 @@
 # coding=utf-8
 import os
 import sys
-import torch
 import argparse
 import numpy as np
 from map_helper import APCalculator, parse_predictions, parse_groundtruths
@@ -11,7 +10,7 @@ from map_helper import APCalculator, parse_predictions, parse_groundtruths
 '''
 parser = argparse.ArgumentParser()
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
-parser.add_argument('--data_dir', default=None, help='Dir that stores predicted results [default: None]') # votenet_data 
+parser.add_argument('--data_dir', default=None, help='Dir that stores predicted results [default: None]') # 'votenet_data_clsSem_rmEmpty' 
 parser.add_argument('--dataset', default='scannet', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
 parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
@@ -111,14 +110,14 @@ for i in range(steps):
             nonempty_box_mask_list.append(nonempty_box_mask)
 
     end_points = dict()
-    end_points['pred_bbox'] = torch.from_numpy(np.array(pred_bbox_list)).float()
-    end_points['objectness_scores'] = torch.from_numpy(np.array(objectness_scores_list)).float()
-    end_points['gt_bbox'] = torch.from_numpy(np.array(gt_bbox_list)).float()
-    end_points['gt_bbox_mask'] = torch.from_numpy(np.array(gt_bbox_mask_list)).float()
+    end_points['pred_bbox'] = np.array(pred_bbox_list)
+    end_points['objectness_scores'] = np.array(objectness_scores_list)
+    end_points['gt_bbox'] = np.array(gt_bbox_list)
+    end_points['gt_bbox_mask'] = np.array(gt_bbox_mask_list)
     if FLAGS.per_class_proposal:
-        end_points['sem_cls_probs'] = torch.from_numpy(np.array(sem_cls_probs_list)).float()
+        end_points['sem_cls_probs'] = np.array(sem_cls_probs_list)
     if not FLAGS.faster_eval:
-        end_points['nonempty_box_mask'] = torch.from_numpy(np.array(nonempty_box_mask_list)).float()
+        end_points['nonempty_box_mask'] = np.array(nonempty_box_mask_list)
 
     batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
     batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 

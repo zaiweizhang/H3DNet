@@ -73,11 +73,11 @@ def parse_predictions(end_points, config_dict):
     bsize = pred_center.shape[0]
 
     pred_corners_3d_upright_camera = np.zeros((bsize, num_proposal, 8, 3))
-    pred_center_upright_camera = flip_axis_to_camera(pred_center.detach().cpu().numpy())
+    pred_center_upright_camera = flip_axis_to_camera(pred_center)
     for i in range(bsize):
         for j in range(num_proposal):
-            heading_angle = end_points['pred_bbox'][i, j, 6].detach().cpu().numpy()
-            box_size = end_points['pred_bbox'][i, j, 3:6].detach().cpu().numpy()
+            heading_angle = end_points['pred_bbox'][i, j, 6]
+            box_size = end_points['pred_bbox'][i, j, 3:6]
             corners_3d_upright_camera = get_3d_box(box_size, heading_angle, pred_center_upright_camera[i,j,:])
             pred_corners_3d_upright_camera[i,j] = corners_3d_upright_camera
 
@@ -85,11 +85,11 @@ def parse_predictions(end_points, config_dict):
     nonempty_box_mask = np.ones((bsize, K))
 
     if config_dict['remove_empty_box']:
-        nonempty_box_mask = end_points['nonempty_box_mask'].detach().cpu().numpy()
+        nonempty_box_mask = end_points['nonempty_box_mask']
     if config_dict['per_class_proposal']:
-        sem_cls_probs = end_points['sem_cls_probs'].detach().cpu().numpy()
+        sem_cls_probs = end_points['sem_cls_probs']
 
-    obj_prob = end_points['objectness_scores'].detach().cpu().numpy() # (B, num_proposal)
+    obj_prob = end_points['objectness_scores']
 
     if not config_dict['use_3d_nms']:
         # ---------- NMS input: pred_with_prob in (B,K,7) -----------
@@ -194,12 +194,12 @@ def parse_groundtruths(end_points, config_dict):
 
     K2 = center_label.shape[1] # K2==MAX_NUM_OBJ
     gt_corners_3d_upright_camera = np.zeros((bsize, K2, 8, 3))
-    gt_center_upright_camera = flip_axis_to_camera(center_label[:,:,0:3].detach().cpu().numpy())
+    gt_center_upright_camera = flip_axis_to_camera(center_label[:,:,0:3])
     for i in range(bsize):
         for j in range(K2):
             if box_label_mask[i,j] == 0: continue
-            heading_angle = end_points['gt_bbox'][i, j, 6].detach().cpu().numpy()
-            box_size = end_points['gt_bbox'][i, j, 3:6].detach().cpu().numpy()
+            heading_angle = end_points['gt_bbox'][i, j, 6]
+            box_size = end_points['gt_bbox'][i, j, 3:6]
             corners_3d_upright_camera = get_3d_box(box_size, heading_angle, gt_center_upright_camera[i,j,:])
             gt_corners_3d_upright_camera[i,j] = corners_3d_upright_camera
 
