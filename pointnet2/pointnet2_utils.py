@@ -299,7 +299,7 @@ class QueryAndGroup(nn.Module):
         Maximum number of features to gather in the ball
     """
 
-    def __init__(self, radius, nsample, use_xyz=True, ret_grouped_xyz=False, normalize_xyz=False, sample_uniformly=False, ret_unique_cnt=False):
+    def __init__(self, radius, nsample, use_xyz=True, ret_grouped_xyz=False, normalize_xyz=False, sample_uniformly=False, ret_unique_cnt=False, use_feature=False, ret_idx=False):
         # type: (QueryAndGroup, float, int, bool) -> None
         super(QueryAndGroup, self).__init__()
         self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
@@ -307,6 +307,8 @@ class QueryAndGroup(nn.Module):
         self.normalize_xyz = normalize_xyz
         self.sample_uniformly = sample_uniformly
         self.ret_unique_cnt = ret_unique_cnt
+        self.ret_idx = ret_idx
+        self.use_feature = use_feature
         if self.ret_unique_cnt:
             assert(self.sample_uniformly)
 
@@ -355,6 +357,11 @@ class QueryAndGroup(nn.Module):
                 )  # (B, C + 3, npoint, nsample)
             else:
                 new_features = grouped_features
+            if self.use_feature:
+                orig_features = features.unsqueeze(-1).repeat(1,1,1,self.nsample)
+                new_features = torch.cat(
+                    [orig_features, new_features], dim=1
+                )  # (B, C + 3, npoint, nsample)
         else:
             assert (
                 self.use_xyz
@@ -366,12 +373,64 @@ class QueryAndGroup(nn.Module):
             ret.append(grouped_xyz)
         if self.ret_unique_cnt:
             ret.append(unique_cnt)
+        if self.ret_idx:
+            ret.append(idx)
         if len(ret) == 1:
             return ret[0]
         else:
             return tuple(ret)
 
+class PairwiseGroup(nn.Module):
+    r"""
+    Groups with a ball query of radius
 
+    Parameters
+    ---------
+    radius : float32
+        Radius of ball
+    nsample : int32
+        Maximum number of features to gather in the ball
+    """
+
+    def __init__(self, radius, nsample, use_xyz=True, ret_grouped_xyz=False, normalize_xyz=False, sample_uniformly=False, ret_unique_cnt=False, use_feature=False):
+        # type: (QueryAndGroup, float, int, bool) -> None
+        super(PairwiseGroup, self).__init__()
+        self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
+        self.ret_grouped_xyz = ret_grouped_xyz
+        self.normalize_xyz = normalize_xyz
+        self.sample_uniformly = sample_uniformly
+        self.ret_unique_cnt = ret_unique_cnt
+        self.use_feature = use_feature
+        if self.ret_unique_cnt:
+            assert(self.sample_uniformly)
+
+    def forward(self, xyz, new_xyz, features=None):
+        # type: (QueryAndGroup, torch.Tensor. torch.Tensor, torch.Tensor) -> Tuple[Torch.Tensor]
+        r"""
+        Parameters
+        ----------
+        xyz : torch.Tensor
+            xyz coordinates of the features (B, N, 3)
+        new_xyz : torch.Tensor
+            centriods (B, npoint, 3)
+        features : torch.Tensor
+            Descriptors of the features (B, C, N)
+
+        Returns
+        -------
+        new_features : torch.Tensor
+            (B, 3 + C, npoint, nsample) tensor
+        """
+        xyz_trans = xyz.transpose(1, 2).contiguous()
+        grouped_xyz = xyz_trans.unsqueeze(-1).repeat(1,1,1,self.nsample)#grouping_operation(xyz_trans, idx)  # (B, 3, npoint, nsample)
+        grouped_features1 = features.unsqueeze(-1).repeat(1,1,1,self.nsample)
+        grouped_features2 = features.unsqueeze(-2).repeat(1,1,self.nsample,1)
+        grouped_features = torch.cat([grouped_features1, grouped_features2], dim=1)
+        ret = [grouped_features]
+        if self.ret_grouped_xyz:
+            ret.append(grouped_xyz)
+        return tuple(ret)
+        
 class GroupAll(nn.Module):
     r"""
     Groups all features

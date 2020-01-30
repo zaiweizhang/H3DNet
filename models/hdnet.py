@@ -34,6 +34,7 @@ from voting_module_corner import VotingCornerModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
 #from proposal_module_hd import ProposalModule
+from proposal_module_refine import ProposalModuleRefine
 from proposal_module_surface import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
@@ -75,7 +76,7 @@ class HDNet(nn.Module):
         # Backbone point feature learning
         #self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net = Pointnet2BackbonePlane(input_feature_dim=self.input_feature_dim)
-        #self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         #self.backbone_net_corner = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_sem_z = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         self.backbone_net_sem_xy = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
@@ -124,7 +125,7 @@ class HDNet(nn.Module):
         '''
         
         # Hough voting
-        #self.vgen = VotingModule(self.vote_factor, 256+128)
+        self.vgen = VotingModule(self.vote_factor, 256)
         #self.vgen_plane = VotingPlaneModule(self.vote_factor, 256+128)
         self.vgen_z = VotingModule(self.vote_factor, 256)
         self.vgen_xy = VotingModule(self.vote_factor, 256)
@@ -150,6 +151,8 @@ class HDNet(nn.Module):
         
         #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
         #                           mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
+        self.pnet_final = ProposalModuleRefine(num_class, num_heading_bin, num_size_cluster,
+                                   mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
         
     def forward(self, inputs, end_points, mode=""):
         """ Forward pass of the network
@@ -168,25 +171,31 @@ class HDNet(nn.Module):
         """
         batch_size = inputs['plane_label'].shape[0]
 
-        #end_points = self.backbone_net_center(inputs['point_clouds'], end_points)
+        end_points = self.backbone_net_center(inputs['point_clouds'], end_points)
         #end_points = self.backbone_net_corner(inputs['point_clouds'], end_points, mode='corner')
         #end_points = self.backbone_net_sem(inputs['point_clouds'], end_points, mode='sem')
         #end_points = self.backbone_net_plane(inputs['plane_label'], end_points, mode='plane')
         #end_points = self.backbone_net_voxel(inputs['voxel_label'], end_points, inputs)
-        end_points = self.backbone_net_sem_z(inputs['point_clouds'], end_points)
-        end_points = self.backbone_net_sem_xy(inputs['point_clouds'], end_points, mode='sem')
+        end_points = self.backbone_net_sem_z(inputs['point_clouds'], end_points, mode='z')
+        end_points = self.backbone_net_sem_xy(inputs['point_clouds'], end_points, mode='xy')
         end_points = self.backbone_net_line(inputs['point_clouds'], end_points, mode='line')
 
         ### Temparaory code here
-        xyz_sem_z = end_points['fp2_xyz']
-        features_sem_z = end_points['fp2_features']
-        end_points['seed_inds'+'_z'] = end_points['fp2_inds']
+        xyz = end_points['fp2_xyz']
+        features = end_points['fp2_features']
+        end_points['seed_inds'] = end_points['fp2_inds']
+        end_points['seed_xyz'] = xyz
+        end_points['seed_features'] = features
+        
+        xyz_sem_z = end_points['fp2_xyz'+'z']
+        features_sem_z = end_points['fp2_features'+'z']
+        end_points['seed_inds'+'_z'] = end_points['fp2_inds'+'z']
         end_points['seed_xyz'+'_z'] = xyz_sem_z
         end_points['seed_features'+'_z'] = features_sem_z
 
-        xyz_sem_xy = end_points['fp2_xyz'+'sem']
-        features_sem_xy = end_points['fp2_features'+'sem']
-        end_points['seed_inds'+'_xy'] = end_points['fp2_inds'+'sem']
+        xyz_sem_xy = end_points['fp2_xyz'+'xy']
+        features_sem_xy = end_points['fp2_features'+'xy']
+        end_points['seed_inds'+'_xy'] = end_points['fp2_inds'+'xy']
         end_points['seed_xyz'+'_xy'] = xyz_sem_xy
         end_points['seed_features'+'_xy'] = features_sem_xy
 
@@ -208,6 +217,12 @@ class HDNet(nn.Module):
         net_line = self.conv_line2(net_line)
         end_points["pred_sem_class_line"] = net_line
 
+        proposal_xyz, proposal_features = self.vgen(xyz, features)
+        proposal_features_norm = torch.norm(proposal_features, p=2, dim=1)
+        proposal_features = proposal_features.div(proposal_features_norm.unsqueeze(1))
+        end_points['vote_xyz'] = proposal_xyz
+        end_points['vote_features'] = proposal_features
+        
         voted_z, voted_z_feature = self.vgen_z(xyz_sem_z, features_sem_z)
         voted_z_feature_norm = torch.norm(voted_z_feature, p=2, dim=1)
         voted_z_feature = voted_z_feature.div(voted_z_feature_norm.unsqueeze(1))
@@ -229,6 +244,8 @@ class HDNet(nn.Module):
         end_points = self.pnet_z(voted_z, voted_z_feature, end_points, mode='_z')
         end_points = self.pnet_xy(voted_xy, voted_xy_feature, end_points, mode='_xy')
         end_points = self.pnet_line(voted_line, voted_line_feature, end_points, mode='_line')
+
+        end_points = self.pnet_final(end_points)
         
         return end_points
     

@@ -35,6 +35,33 @@ class SharedMLP(nn.Sequential):
                 )
             )
 
+class SplitMLP(nn.Sequential):
+
+    def __init__(
+            self,
+            args: List[int],
+            *,
+            split: int = 18,
+            bn: bool = False,
+            activation=nn.ReLU(inplace=True),
+            preact: bool = False,
+            first: bool = False,
+            name: str = ""
+    ):
+        super().__init__()
+        for j in range(split):
+            for i in range(len(args) - 1):
+                self.add_module(
+                    name + 'layer{}'.format(i),
+                    Conv2d(
+                        args[i],
+                        args[i + 1],
+                        bn=(not first or not preact or (i != 0)) and bn,
+                        activation=activation
+                        if (not first or not preact or (i != 0)) else None,
+                        preact=preact
+                    )
+                )
 
 class _BNBase(nn.Sequential):
 
