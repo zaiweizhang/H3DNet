@@ -16,6 +16,9 @@ from nn_distance import nn_distance, huber_loss
 FAR_THRESHOLD = 0.6
 NEAR_THRESHOLD = 0.3
 
+FAR_MATCH_THRESHOLD = 0.6
+NEAR_MATCH_THRESHOLD = 0.3
+
 FAR_COMB_THRESHOLD = 0.4
 NEAR_COMB_THRESHOLD = 0.3
 
@@ -1079,6 +1082,66 @@ def compute_sem_cls_loss(end_points, mode):
     #sem_cls_loss3 = torch.sum(sem_cls_loss_final3*seed_gt_votes_mask_plane.view(-1).float())/(torch.sum(seed_gt_votes_mask_plane.view(-1).float())+1e-6)
     return sem_cls_loss1#+sem_cls_loss2+sem_cls_loss3
     
+
+def compute_matching_loss(end_points):
+    """ Compute matching loss for the centers.
+    Note:
+        TO BE IMPROVED. Currently waiting for hdnet to generate:
+            end_points['matching_scores_surface']: [B, 256*6, 2]
+            end_points['matching_scores_line']: [B, 256*12, 2]
+    Args:
+        end_points: dict (read-only)
+
+    Returns:
+        matching_loss: scalar Tensor
+    """ 
+    # surface matching
+    surface_center_object = end_points['surface_center_object']
+    surface_center_pred = end_points['surface_center_pred']
+    B = surface_center_pred.shape[0]
+    Ksurface= surface_center_object.shape[1] # 256*6
+    K2surface = surface_center_pred.shape[1] # 4096 
+    dist1, ind1, dist2, _ = nn_distance(surface_center_object, surface_center_pred) # dist1: BxK, dist2: BxK2
+
+    euclidean_dist1_surface = torch.sqrt(dist1+1e-6)
+    objectness_label_surface = torch.zeros((B,Ksurface), dtype=torch.long).cuda()
+    objectness_mask_surface = torch.zeros((B,Ksurface)).cuda()
+    objectness_label_surface[euclidean_dist1_surface<NEAR_MATCH_THRESHOLD] = 1
+    objectness_mask_surface[euclidean_dist1_surface<NEAR_MATCH_THRESHOLD] = 1
+    objectness_mask_surface[euclidean_dist1_surface>FAR_MATCH_THRESHOLD] = 1
+
+    matching_scores_surface = end_points['matching_scores_surface'] # [B, 256*6, 2]
+    criterion_surface = nn.CrossEntropyLoss(reduction='none')
+    objectness_loss_surface = criterion(matching_scores_surface.transpose(2,1), objectness_label_surfacel)
+    objectness_loss_surface = torch.sum(objectness_loss_surface * objectness_mask_surface)/(torch.sum(objectness_mask_surface)+1e-6)
+
+    # line matching
+    line_center_object = end_points['line_center_object']
+    line_center_pred = end_points['line_center_pred']
+    B = line_center_pred.shape[0]
+    Kline= line_center_object.shape[1] # 256*12
+    K2line = line_center_pred.shape[1] # 4096 
+    dist1, ind1, dist2, _ = nn_distance(line_center_object, line_center_pred) # dist1: BxK, dist2: BxK2
+
+    euclidean_dist1_line = torch.sqrt(dist1+1e-6)
+    objectness_label_line = torch.zeros((B,Kline), dtype=torch.long).cuda()
+    objectness_mask_line = torch.zeros((B,Kline)).cuda()
+    objectness_label_line[euclidean_dist1_line<NEAR_MATCH_THRESHOLD] = 1
+    objectness_mask_line[euclidean_dist1_line<NEAR_MATCH_THRESHOLD] = 1
+    objectness_mask_line[euclidean_dist1_line>FAR_MATCH_THRESHOLD] = 1
+
+    matching_scores_line = end_points['matching_scores_line'] # [B, 256*12, 2]
+    criterion_line = nn.CrossEntropyLoss(reduction='none')
+    objectness_loss_line = criterion(matching_scores_line.transpose(2,1), objectness_label_line)
+    objectness_loss_line = torch.sum(objectness_loss_line * objectness_mask_line)/(torch.sum(objectness_mask_line)+1e-6)
+
+    matching_loss = objectness_loss_surface + objectness_loss_line
+
+    return matching_loss
+
+
+
+
 def get_loss(inputs, end_points, config, net=None):
     """ Loss functions
 
