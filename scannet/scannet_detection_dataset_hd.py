@@ -940,6 +940,7 @@ class ScannetDetectionDataset(Dataset):
                 
         ret_dict['point_clouds'] = point_cloud.astype(np.float32)
         ret_dict['center_label'] = target_bboxes.astype(np.float32)[:,0:3]
+        ret_dict['size_label'] = target_bboxes.astype(np.float32)[:,3:6]
         ret_dict['heading_class_label'] = angle_classes.astype(np.int64)
         ret_dict['heading_residual_label'] = angle_residuals.astype(np.float32)
         ret_dict['size_class_label'] = size_classes.astype(np.int64)

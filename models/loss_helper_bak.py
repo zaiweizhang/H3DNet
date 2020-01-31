@@ -19,18 +19,13 @@ NEAR_THRESHOLD = 0.3
 FAR_COMB_THRESHOLD = 0.4
 NEAR_COMB_THRESHOLD = 0.3
 
-MASK_SURFACE_THRESHOLD = 0.1
-LABEL_SURFACE_THRESHOLD = 0.3
-MASK_LINE_THRESHOLD = 0.1
-LABEL_LINE_THRESHOLD = 0.3
-
 SIZE_THRESHOLD = 0.4
 SIZE_FAR_THRESHOLD = 0.6
 
-GT_VOTE_FACTOR = 3 # number of GT votes per point
+GT_VOTE_FACTOR = 1#3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 SEM_CLS_WEIGHTS = [0.4,0.6] # put larger weights on positive objectness
-OBJECTNESS_CLS_WEIGHTS_REFINE = [0.5,0.5] # put larger weights on positive objectness
+OBJECTNESS_CLS_WEIGHTS_REFINE = [0.2,0.8] # put larger weights on positive objectness
 
 EPOCH_THRESH = 400
 
@@ -134,7 +129,7 @@ def compute_surface_center_loss(end_points, mode='_z'):
         seed_gt_votes_mask = torch.gather(end_points['point_line_mask'], 1, seed_inds)
     else:
         seed_gt_votes_mask = torch.gather(end_points['point_boundary_mask'+mode], 1, seed_inds)
-    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
     if mode == '_line':
         seed_gt_votes = torch.gather(end_points['point_line_offset'], 1, seed_inds_expand)
     else:
@@ -143,7 +138,7 @@ def compute_surface_center_loss(end_points, mode='_z'):
 
     # Compute the min of min of distance
     vote_xyz_reshape = vote_xyz.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
-    seed_gt_votes_reshape = seed_gt_votes.view(batch_size*num_seed, 1, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    seed_gt_votes_reshape = seed_gt_votes.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
     # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
     dist1, _, dist2, _ = nn_distance(vote_xyz_reshape, seed_gt_votes_reshape, l1=True)
     votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
@@ -324,6 +319,111 @@ def compute_center_plane_loss(end_points):
     
     reg_loss = torch.sum(reg_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
     return reg_loss
+
+def compute_plane_loss_old(end_points, mode='upper'):
+    # Load ground truth votes and assign them to seed points
+    batch_size = end_points['seed_xyz'+'plane'].shape[0]
+    num_seed = end_points['seed_xyz'+'plane'].shape[1] # B,num_seed,3
+    seed_inds = end_points['seed_inds'+'plane'].long() # B,num_seed in [0,num_points-1]
+
+    # Get groundtruth votes for the seed points
+    # vote_label_mask: Use gather to select B,num_seed from B,num_point
+    #   non-object point has no GT vote mask = 0, object point has mask = 1
+    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
+    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
+    seed_gt_votes_mask = torch.gather(end_points['plane_label_mask'], 1, seed_inds)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
+    seed_inds_expand_off = seed_inds.view(batch_size,num_seed,1).repeat(1,1,GT_VOTE_FACTOR)
+
+    vote_upper_rot = end_points[mode+'_rot'] # B,num_seed*vote_factor,3
+    vote_upper_rot_reshape = vote_upper_rot.view(batch_size*num_seed, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
+    vote_upper_offset = end_points[mode+'_off'] # B,num_seed*vote_factor,3
+    vote_upper_offset_reshape = vote_upper_offset.view(batch_size*num_seed, -1, 1) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
+
+    seed_rot_votes = torch.gather(end_points['plane_votes_rot_'+mode], 1, seed_inds_expand)
+    seed_off_votes = torch.gather(end_points['plane_votes_off_'+mode], 1, seed_inds_expand_off)   
+    seed_gt_rot_reshape = seed_rot_votes.view(batch_size*num_seed, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    seed_gt_off_reshape = seed_off_votes.view(batch_size*num_seed, GT_VOTE_FACTOR, 1) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    dist1, _, dist2, _ = nn_distance(vote_upper_rot_reshape, seed_gt_rot_reshape, l1=True)
+    votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
+    votes_dist = votes_dist.view(batch_size, num_seed)
+    vote_rot_loss = torch.sum(votes_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    dist1, _, dist2, _ = nn_distance(vote_upper_offset_reshape, seed_gt_off_reshape, l1=True)
+    votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
+    votes_dist = votes_dist.view(batch_size, num_seed)
+    vote_off_loss = torch.sum(votes_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    
+    #return vote_rot_loss * 0.5 + vote_off_loss, vote_rot_loss*0.5, vote_off_loss
+    return vote_rot_loss * 0.5 + vote_off_loss, vote_rot_loss*0.5, vote_off_loss
+    #plane_upper_loss, plane_lower_loss, plane_left_loss, plane_right_loss, plane_front_loss, plane_back_loss, plane_support_loss, plane_bsupport_loss = 
+
+def compute_plane_loss_old(end_points, mode='x'):
+    # Load ground truth votes and assign them to seed points
+    batch_size = end_points['seed_xyz'+'plane'].shape[0]
+    num_seed = end_points['seed_xyz'+'plane'].shape[1] # B,num_seed,3
+    seed_inds = end_points['seed_inds'+'plane'].long() # B,num_seed in [0,num_points-1]
+    
+    # Get groundtruth votes for the seed points
+    # vote_label_mask: Use gather to select B,num_seed from B,num_point
+    #   non-object point has no GT vote mask = 0, object point has mask = 1
+    # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
+    #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
+    seed_gt_votes_mask = torch.gather(end_points['plane_label_mask'], 1, seed_inds)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
+    seed_inds_expand_off = seed_inds.view(batch_size,num_seed,1).repeat(1,1,GT_VOTE_FACTOR)
+
+    rot_meta = torch.gather(end_points['plane_votes_'+mode], 1, seed_inds_expand)
+    off0_meta = torch.gather(end_points['plane_votes_'+mode+'0'], 1, seed_inds_expand_off)
+    off1_meta = torch.gather(end_points['plane_votes_'+mode+'1'], 1, seed_inds_expand_off)
+    
+    ### Loss for the angle class
+    criterion_sem_cls = nn.CrossEntropyLoss(reduction='none')
+
+    end_points[mode+'_gt'] = rot_meta[:,:,[0,3,6]].long()
+    
+    angle_loss1 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,0].long())
+    angle_loss2 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,3].long())
+    angle_loss3 = criterion_sem_cls(end_points[mode+'_angle'], rot_meta[:,:,6].long())
+
+    angle_loss, _ = torch.min(torch.stack((angle_loss1, angle_loss2, angle_loss3), 2), dim=2)
+    angle_loss = torch.sum(angle_loss*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+    
+    ### Loss for the sign class
+    plane_sign_reshape = end_points[mode+'_sign'].view(batch_size*num_seed, -1, 1)
+    seed_sign = rot_meta[:,:,[2,5,8]]
+    seed_sign_reshape = seed_sign.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_sign_reshape, seed_sign_reshape, l1=True)
+    sign_dist, _ = torch.min(dist2, dim=1)
+    sign_dist = sign_dist.view(batch_size, num_seed)
+    sign_loss = torch.sum(sign_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for res regression    
+    plane_res_reshape = end_points[mode+'_res'].view(batch_size*num_seed, -1, 1)
+    seed_res = rot_meta[:,:,[1,4,7]]
+    seed_res_reshape = seed_res.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_res_reshape, seed_res_reshape, l1=True)
+    res_dist, _ = torch.min(dist2, dim=1)
+    res_dist = res_dist.view(batch_size, num_seed)
+    res_loss = torch.sum(res_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for off0 regression
+    plane_off0_reshape = end_points[mode+'_off0'].contiguous().view(batch_size*num_seed, -1, 1)
+    seed_off0_reshape = off0_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_off0_reshape, seed_off0_reshape, l1=True)
+    off0_dist, _ = torch.min(dist2, dim=1)
+    off0_dist = off0_dist.view(batch_size, num_seed)
+    off0_loss = torch.sum(off0_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    ### Loss for off1 regression
+    plane_off1_reshape = end_points[mode+'_off1'].contiguous().view(batch_size*num_seed, -1, 1)
+    seed_off1_reshape = off1_meta.view(batch_size*num_seed, GT_VOTE_FACTOR, 1)
+    dist1, _, dist2, _ = nn_distance(plane_off1_reshape, seed_off1_reshape, l1=True)
+    off1_dist, _ = torch.min(dist2, dim=1)
+    off1_dist = off1_dist.view(batch_size, num_seed)
+    off1_loss = torch.sum(off1_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
+
+    return off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
+    #return angle_loss + sign_loss + res_loss + off0_loss + off1_loss, angle_loss, res_loss, sign_loss, off0_loss, off1_loss
 
 def compute_plane_loss(end_points):
     # Load ground truth votes and assign them to seed points
@@ -563,106 +663,140 @@ def compute_objectness_loss(end_points, mode=''):
     gt_center = end_points['center_label'][:,:,0:3]
     B = gt_center.shape[0]
     K2 = gt_center.shape[1]
-    
-    aggregated_vote_xyz = end_points['aggregated_vote_xyz'+mode] ### Vote xyz is the same for all
-    K = aggregated_vote_xyz.shape[1]
+    if 'refine' in mode:
+        feature = end_points['aggregated_vote_mrf']
+        F = feature.shape[1] // 2
+        K = feature.shape[2]
+        N = feature.shape[3]
+
+        ### For location constraint
+        aggregated_vote_xyz1 = feature[:,2:2+3,:,:].view(B,3,K*N).transpose(2,1).contiguous()
+        aggregated_vote_xyz2 = feature[:,F+2:F+2+3,:,:].view(B,3,K*N).transpose(2,1).contiguous()
+        aggregated_vote_xyz = torch.cat((aggregated_vote_xyz1, aggregated_vote_xyz2), 1)
+
+        #aggregated_vote_xyz = feature[:,2:2+3,:,0].transpose(2,1).contiguous()
+        #aggregated_vote_sem = end_points['aggregated_vote_sem'][:,:,:,0].transpose(2,1).contiguous()
+        #aggregated_vote_sem = torch.argmax(aggregated_vote_sem, -1)
+
+        K *= N
+    else:
+        aggregated_vote_xyz = end_points['aggregated_vote_xyz'+mode] ### Vote xyz is the same for all
+        K = aggregated_vote_xyz.shape[1]
 
     dist1, ind1, dist2, _ = nn_distance(aggregated_vote_xyz, gt_center) # dist1: BxK, dist2: BxK2
 
     # Set assignment
     object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
-
+    
     # Generate objectness label and mask
     # objectness_label: 1 if pred object center is within NEAR_THRESHOLD of any GT object
     # objectness_mask: 0 if pred object center is in gray zone (DONOTCARE), 1 otherwise
     euclidean_dist1 = torch.sqrt(dist1+1e-6)
     objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
     objectness_mask = torch.zeros((B,K)).cuda()
-    
-    ### Get the corresponding object center
-    if mode == 'opt':
-        obj_center = torch.gather(end_points['center_label'], 1, object_assignment.unsqueeze(-1).repeat(1,1,3))
-        gt_size = torch.gather(end_points['size_label'], 1, object_assignment.unsqueeze(-1).repeat(1,1,3)) # select (B,K) from (B,K2)
-        offset_x = torch.zeros_like(gt_size)
-        offset_y = torch.zeros_like(gt_size)
-        offset_z = torch.zeros_like(gt_size)
-        offset_x[:,:,0] = gt_size[:,:,0] / 2.0
-        offset_y[:,:,1] = gt_size[:,:,1] / 2.0
-        offset_z[:,:,2] = gt_size[:,:,2] / 2.0        
-        ### Extract the ground truth surface label here
-        obj_surface_center_0 = obj_center + offset_z
-        obj_surface_center_1 = obj_center - offset_z
-        obj_surface_center_2 = obj_center + offset_y
-        obj_surface_center_3 = obj_center - offset_y
-        obj_surface_center_4 = obj_center + offset_x
-        obj_surface_center_5 = obj_center - offset_x
+    if 'refine' in mode:
+        objectness_label_sub = torch.zeros((B,K//N), dtype=torch.long).cuda()
+        objectness_mask_sub = torch.zeros((B,K//N)).cuda()
+    '''
+    if False:#mode == 'corner':
+        size_gt = end_points['gt_bbox'][:, :, 3:6]
+        size_assign = torch.gather(size_gt, 1, (object_assignment[:, :, None].repeat(1, 1, 3)))
         
-        ### Extract the ground truth line label here
-        obj_line_center_0 = obj_center + offset_z + offset_x
-        obj_line_center_1 = obj_center + offset_z - offset_x
-        obj_line_center_2 = obj_center + offset_z + offset_y
-        obj_line_center_3 = obj_center + offset_z - offset_y
+        size_init_pps = end_points['aggregated_vote_xyz'+mode+'size']
         
-        obj_line_center_4 = obj_center - offset_z + offset_x
-        obj_line_center_5 = obj_center - offset_z - offset_x
-        obj_line_center_6 = obj_center - offset_z + offset_y
-        obj_line_center_7 = obj_center - offset_z - offset_y
+        size_dist = torch.norm((size_init_pps / size_assign - 1), dim=2)
 
-        obj_line_center_8 = obj_center + offset_x + offset_y
-        obj_line_center_9 = obj_center + offset_x - offset_y
-        obj_line_center_10 = obj_center - offset_x + offset_y
-        obj_line_center_11 = obj_center - offset_x - offset_y
-
-        obj_surface_center = torch.cat((obj_surface_center_0, obj_surface_center_1, obj_surface_center_2, obj_surface_center_3, obj_surface_center_4, obj_surface_center_5), dim=1)
-        obj_line_center = torch.cat((obj_line_center_0, obj_line_center_1, obj_line_center_2, obj_line_center_3, obj_line_center_4, obj_line_center_5, obj_line_center_6, obj_line_center_7, obj_line_center_8, obj_line_center_9, obj_line_center_10, obj_line_center_11), dim=1)
-
-        pred_surface_center = end_points['surface_center_pred']
-        pred_line_center = end_points['line_center_pred']
-
-        pred_obj_surface_center = end_points["surface_center_object"]
-        pred_obj_line_center = end_points["line_center_object"]
-        
-        dist_surface, _, _, _ = nn_distance(obj_surface_center, pred_surface_center)
-        dist_line, _, _, _ = nn_distance(obj_line_center, pred_line_center)
-        
-        euclidean_dist_surface = torch.sqrt(dist_surface+1e-6)
-        euclidean_dist_line = torch.sqrt(dist_line+1e-6)
-        objectness_label_surface = torch.zeros((B,K*6), dtype=torch.long).cuda()
-        objectness_mask_surface = torch.zeros((B,K*6)).cuda()
-        objectness_label_line = torch.zeros((B,K*12), dtype=torch.long).cuda()
-        objectness_mask_line = torch.zeros((B,K*12)).cuda()
-
-        euclidean_dist_obj_surface = torch.sqrt(torch.sum((obj_surface_center - pred_obj_surface_center)**2, dim=-1)+1e-6)
-        euclidean_dist_obj_line = torch.sqrt(torch.sum((obj_line_center - pred_obj_line_center)**2, dim=-1)+1e-6)
-        
-    if mode == 'opt':
+        objectness_label[(euclidean_dist1<NEAR_THRESHOLD) & \
+                         (size_dist < SIZE_THRESHOLD)] = 1
+        objectness_mask[(euclidean_dist1<NEAR_THRESHOLD) & \
+                         (size_dist < SIZE_THRESHOLD)] = 1
+        objectness_mask[(euclidean_dist1>FAR_THRESHOLD) & \
+                         (size_dist > SIZE_FAR_THRESHOLD)] = 1
+    else:
+        objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
+        objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
+        objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+    '''
+    #if mode == 'refine':
+    if 'refine' in mode:
         ###Pairwise on Geometry
-        objectness_mask_surface[(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)] = 1
-        objectness_mask_line[(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1
+        objectness_label[(euclidean_dist1[:,:K]<NEAR_COMB_THRESHOLD)*(euclidean_dist1[:,K:]<NEAR_COMB_THRESHOLD)] = 1
+        
+        objectness_mask[(euclidean_dist1[:,:K]<NEAR_COMB_THRESHOLD)*(euclidean_dist1[:,K:]<NEAR_COMB_THRESHOLD)] = 1
+        objectness_mask[(euclidean_dist1[:,:K]>FAR_COMB_THRESHOLD)*(euclidean_dist1[:,K:]>FAR_COMB_THRESHOLD)] = 1
 
-        objectness_label_surface[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)] = 1
-        objectness_label_line[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)] = 1
-    #else:
-    objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
-    objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
-    objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+        ### Remove the self idx
+        '''
+        idx = end_points['temp'+'idx']
+
+        check_tensor = torch.tensor([np.stack([np.arange(0,K//N)]*N, -1)]*B).cuda()
+        check_diag = (1.0 - (idx.float() == check_tensor.float()).float())
+
+        objectness_mask = (objectness_mask.view(B,K//N,N).contiguous() * check_diag).view(B, K).contiguous()
+        '''
+        
+        end_points['gt_mrf'] = objectness_label.view(B,-1,N)
+        
+        '''
+        #sem_gt = end_points['sem_cls_label']
+        #sem_assign = torch.gather(sem_gt, 1, object_assignment)
+        if mode == 'refine1':
+            objectness_mask_sub[euclidean_dist1[:,:K]<NEAR_COMB_THRESHOLD] = 1
+            objectness_mask_sub[euclidean_dist1[:,:K]<=FAR_COMB_THRESHOLD] = 1
+        else:
+            objectness_label_sub[(euclidean_dist1<NEAR_COMB_THRESHOLD) &
+                                 (sem_assign == aggregated_vote_sem)] = 1
+            objectness_mask_sub[euclidean_dist1[:,:K]<NEAR_COMB_THRESHOLD] = 1
+        #objectness_mask_sub[euclidean_dist1[:,:K]<NEAR_COMB_THRESHOLD] = 1
+        #objectness_mask_sub[euclidean_dist1[:,:K]>FAR_COMB_THRESHOLD] = 1
+
+        objectness_label_mat1 = objectness_label_sub.unsqueeze(-1).repeat(1,1,N)
+        objectness_label_mat2 = objectness_label_sub.unsqueeze(-2).repeat(1,N,1)
+        objectness_label_mat = objectness_label_mat1 * objectness_label_mat2
+        end_points['gt_mrf'] = objectness_label_mat
+        
+        objectness_label1 = objectness_label_sub.unsqueeze(-1).repeat(1,1,N).view(B, K).contiguous()
+        objectness_label2 = objectness_label_sub.unsqueeze(-2).repeat(1,N,1).view(B, K).contiguous()
+        objectness_label = objectness_label1 * objectness_label2
+
+        objectness_mask1 = objectness_mask_sub.unsqueeze(-1).repeat(1,1,N).view(B, K).contiguous()
+        objectness_mask2 = objectness_mask_sub.unsqueeze(-2).repeat(1,N,1).view(B, K).contiguous()
+        objectness_mask = objectness_mask1 * objectness_mask2
+        '''
+        '''
+        objectness_label2[euclidean_dist1[:,K:]<NEAR_COMB_THRESHOLD] = 1
+        
+        objectness_label1 = torch.zeros((B,K), dtype=torch.long).cuda()
+        objectness_label2 = torch.zeros((B,K), dtype=torch.long).cuda()
+        objectness_mask1 = torch.zeros((B,K)).cuda()
+        objectness_mask2 = torch.zeros((B,K)).cuda()
+   
+        objectness_label = objectness_label1 * objectness_label2
+        objectness_mask = objectness_mask1 * objectness_mask2
+        '''
+        
+        #objectness_mask_orig = torch.eye(K//N).cuda()
+        #objectness_mask_orig = (1 - objectness_mask_orig.unsqueeze(0).repeat(B,1,1)).view(B, K).contiguous()
+
+        #objectness_mask = objectness_mask * objectness_mask_orig
+        #objectness_mask[euclidean_dist1<NEAR_COMB_THRESHOLD] = 1
+        #objectness_mask[euclidean_dist1>FAR_COMB_THRESHOLD] = 1
+    else:
+        objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
+        objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
+        objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
         
     # Compute objectness loss
-    if mode == 'opt':
-        objectness_scores = end_points["match_scores"]#end_points['objectness_scores'+'refine']
-        temp_objectness_label = torch.cat((objectness_label_surface, objectness_label_line), 1)
-        temp_objectness_mask = torch.cat((objectness_mask_surface, objectness_mask_line), 1)
+    if 'refine' in mode:
+        objectness_scores = end_points['objectness_scores'+'refine']
         criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS_REFINE).cuda(), reduction='none')
-        objectness_loss = criterion(objectness_scores.transpose(2,1), temp_objectness_label)
-        objectness_loss = torch.sum(objectness_loss * temp_objectness_mask)/(torch.sum(temp_objectness_mask)+1e-6)
-        return objectness_loss, objectness_label, objectness_mask, temp_objectness_label, temp_objectness_mask, object_assignment
     else:
         objectness_scores = end_points['objectness_scores'+mode]
         criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
-        objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
-        objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
+    objectness_loss = criterion(objectness_scores.transpose(2,1), objectness_label)
+    objectness_loss = torch.sum(objectness_loss * objectness_mask)/(torch.sum(objectness_mask)+1e-6)
 
-        return objectness_loss, objectness_label, objectness_mask, object_assignment
+    return objectness_loss, objectness_label, objectness_mask, object_assignment
 
 def compute_box_and_sem_cls_loss(end_points, config, mode=''):
     """ Compute 3D bounding box and semantic classification loss.
@@ -777,13 +911,13 @@ def compute_boxsem_loss(end_points, config, mode=''):
         seed_gt_votes_mask = torch.gather(end_points['point_line_mask'], 1, seed_inds)
     else:
         seed_gt_votes_mask = torch.gather(end_points['point_boundary_mask'+mode], 1, seed_inds)
-    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3)
+    seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
     if mode == '_z':
-        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,6)
+        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,6*GT_VOTE_FACTOR)
     elif mode == '_xy':
-        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,5)
+        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,5*GT_VOTE_FACTOR)
     else:
-        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,4)
+        seed_inds_expand_sem = seed_inds.view(batch_size,num_seed,1).repeat(1,1,4*GT_VOTE_FACTOR)
     if mode == '_line':
         seed_gt_votes = torch.gather(end_points['point_line_offset'], 1, seed_inds_expand)
         seed_gt_sem = torch.gather(end_points['point_line_sem'], 1, seed_inds_expand_sem)
@@ -808,7 +942,7 @@ def compute_boxsem_loss(end_points, config, mode=''):
     
     # Compute the min of min of distance
     vote_xyz_reshape = vote_xyz.view(batch_size*num_proposal, -1, 3) # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
-    seed_gt_votes_reshape = seed_gt_votes.view(batch_size*num_proposal, 1, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+    seed_gt_votes_reshape = seed_gt_votes.view(batch_size*num_proposal, GT_VOTE_FACTOR, 3) # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
     # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
     dist1, _, dist2, _ = nn_distance(vote_xyz_reshape, seed_gt_votes_reshape, l1=True)
     votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
@@ -820,10 +954,10 @@ def compute_boxsem_loss(end_points, config, mode=''):
         size_xyz = end_points['size_residuals'+mode].contiguous() # B,num_seed*vote_factor,3
         if mode == '_z':
             size_xyz_reshape = size_xyz.view(batch_size*num_proposal, -1, 2).contiguous() # from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
-            seed_gt_votes_reshape = seed_gt_sem[:,:,3:5].view(batch_size*num_proposal, 1, 2).contiguous() # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+            seed_gt_votes_reshape = seed_gt_sem[:,:,3:5].view(batch_size*num_proposal, GT_VOTE_FACTOR, 2).contiguous() # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
         else:
             size_xyz_reshape = size_xyz.view(batch_size*num_proposal, -1, 1).contiguous()# from B,num_seed*vote_factor,3 to B*num_seed,vote_factor,3
-            seed_gt_votes_reshape = seed_gt_sem[:,:,3:4].view(batch_size*num_proposal, 1, 1).contiguous() # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
+            seed_gt_votes_reshape = seed_gt_sem[:,:,3:4].view(batch_size*num_proposal, GT_VOTE_FACTOR, 1).contiguous() # from B,num_seed,3*GT_VOTE_FACTOR to B*num_seed,GT_VOTE_FACTOR,3
         # A predicted vote to no where is not penalized as long as there is a good vote near the GT vote.
         dist1, _, dist2, _ = nn_distance(size_xyz_reshape, seed_gt_votes_reshape, l1=True)
         size_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
@@ -1008,7 +1142,7 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['sem_loss_xy'] = sem_loss_xy
 
     sem_loss_line = compute_sem_cls_loss(end_points, mode='_line')*30 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
-    end_points['sem_loss_line'] = sem_loss_line
+    end_points['sem_loss_line'] = sem_loss_line*2
 
     vote_loss_z = compute_surface_center_loss(end_points, mode='_z')*10
     end_points['vote_loss_z'] = vote_loss_z
@@ -1017,33 +1151,144 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['vote_loss_xy'] = vote_loss_xy
 
     vote_loss_line = compute_surface_center_loss(end_points, mode='_line')*10
-    end_points['vote_loss_line'] = vote_loss_line
+    end_points['vote_loss_line'] = vote_loss_line*2
 
     center_lossz, size_lossz, sem_lossz = compute_boxsem_loss(end_points, config, mode='_z')
     end_points['center_lossz'] = center_lossz
     end_points['size_lossz'] = size_lossz
     end_points['sem_lossz'] = sem_lossz
-    end_points['surface_lossz'] = center_lossz*0.5 + size_lossz*0.5 + sem_lossz
+    end_points['surface_lossz'] = center_lossz*3 + size_lossz*3 + sem_lossz
 
     center_lossxy, size_lossxy, sem_lossxy = compute_boxsem_loss(end_points, config, mode='_xy')
     end_points['center_lossxy'] = center_lossxy
     end_points['size_lossxy'] = size_lossxy
     end_points['sem_lossxy'] = sem_lossxy
-    end_points['surface_lossxy'] = center_lossxy*0.5 + size_lossxy*0.5 + sem_lossxy
+    end_points['surface_lossxy'] = center_lossxy*3 + size_lossxy*3 + sem_lossxy
 
     center_lossline, size_lossline, sem_lossline = compute_boxsem_loss(end_points, config, mode='_line')
     end_points['center_lossline'] = center_lossline
     end_points['size_lossline'] = size_lossline
     end_points['sem_lossline'] = sem_lossline
-    end_points['surface_lossline'] = center_lossline*0.5 + size_lossline*0.5 + sem_lossline
+    end_points['surface_lossline'] = center_lossline*3 + size_lossline*3 + sem_lossline
     
     end_points['objcue_loss'] = sem_loss_z + sem_loss_xy + sem_loss_line + vote_loss_z + vote_loss_xy + vote_loss_line + end_points['surface_lossz'] + end_points['surface_lossxy'] + end_points['surface_lossline']*2
     #return end_points['loss'], end_points
+    ### New loss here
+    '''
+    sem_loss = compute_sem_cls_loss(end_points)*10 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
+    end_points['sem_loss'] = sem_loss
+    normal_loss = compute_objcue_vote_loss(end_points, mode='normal')*10
+    end_points['normal_loss'] = normal_loss
+    loss = sem_loss + normal_loss
+    end_points['loss'] = loss
+    return loss, end_points
+    '''
+    
+    # Compute support vote loss
+    if False:#True:#end_points['use_objcue']:
+        vote_loss_corner1 = compute_objcue_vote_loss(end_points, mode='corner1')*10
+        vote_loss_corner2 = compute_objcue_vote_loss(end_points, mode='corner2')*10
+        end_points['vote_loss_corner1'] = vote_loss_corner1
+        end_points['vote_loss_corner2'] = vote_loss_corner2
+        corner_cueloss, corner_cuelabel, corner_cuemask = compute_cueness_loss(end_points, mode='corner')
+        corner_cueloss *= 10
+        end_points['vote_loss_corner_cue'] = corner_cueloss
+        end_points['corner_cue'] = corner_cuelabel
+        vote_loss_plane = compute_objcue_vote_loss(end_points, mode='plane')*10
+        end_points['vote_loss_plane'] = vote_loss_plane
+        sem_loss = compute_sem_cls_loss(end_points)*30 # torch.tensor(0)#compute_sem_cls_loss(end_points)*10
+        end_points['sem_loss'] = sem_loss
+        ## get the voxel loss here
+        
+        if inputs['sunrgbd']:
+            voxel_center_loss_focal = 0
+        else:
+            voxel_center_loss_focal = compute_voxel_loss(end_points['vox_pred1'], end_points['vox_center'], w9_fcen, w8_fcen)
+        voxel_center_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred1'], end_points['vox_center'], w9_cen, w8_cen, w5_cen)
+        #end_points['voxel_loss_center'] = wfocal*voxel_center_loss_focal + wl2*voxel_center_loss_l2
+        end_points['voxel_loss_center'] = wl2*voxel_center_loss_l2
+        '''
+        if inputs['sunrgbd']:
+            voxel_corner_loss_focal = 0
+        else:
+            voxel_corner_loss_focal = compute_voxel_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_fcor, w8_fcor)
+        voxel_corner_loss_l2 = compute_voxel_l2_loss(end_points['vox_pred2'], end_points['vox_corner'], w9_cor, w8_cor, w5_cor)
+        end_points['voxel_loss_corner'] = wfocal*voxel_corner_loss_focal + wl2*voxel_corner_loss_l2
+
+        end_points['voxel_loss'] =  end_points['voxel_loss_center']*wcenter + end_points['voxel_loss_corner']*wcorner
+        '''
+        #end_points['vote_loss_support_center'] = support_center
+        #end_points['vote_loss_bsupport_center'] = bsupport_center
+        #end_points['vote_loss_support_offset'] = support_offset
+        #end_points['vote_loss_bsupport_offset'] = bsupport_offset
+
+    if True:#end_points['use_plane']:
+        plane_loss, plane_offset_loss, plane_reg_loss = compute_plane_loss(end_points)
+        #plane_z_loss, z_angle, z_res, z_sign, z_off0, z_off1 = compute_plane_loss(end_points, mode='z')
+        #plane_x_loss, x_angle, x_res, x_sign, x_off0, x_off1 = compute_plane_loss(end_points, mode='x')
+        #plane_y_loss, y_angle, y_res, y_sign, y_off0, y_off1 = compute_plane_loss(end_points, mode='y')
+
+        end_points['plane_offset_loss'] = plane_offset_loss
+        end_points['plane_reg_loss'] = plane_reg_loss
+        #end_points['plane_x_loss'] = plane_x_loss
+        #end_points['plane_x_loss_angle'] = x_angle
+        #end_points['plane_x_loss_res'] = x_res
+        #end_points['plane_x_loss_sign'] = x_sign
+        #end_points['plane_x_loss_off0'] = x_off0
+        #end_points['plane_x_loss_off1'] = x_off1
+
+        #end_points['plane_y_loss'] = plane_y_loss
+        #end_points['plane_y_loss_angle'] = y_angle
+        #end_points['plane_y_loss_res'] = y_res
+        #end_points['plane_y_loss_sign'] = y_sign
+        #end_points['plane_y_loss_off0'] = y_off0
+        #end_points['plane_y_loss_off1'] = y_off1
+
+        #end_points['plane_z_loss'] = plane_z_loss
+        #end_points['plane_z_loss_angle'] = z_angle
+        #end_points['plane_z_loss_res'] = z_res
+        #end_points['plane_z_loss_sign'] = z_sign
+        #end_points['plane_z_loss_off0'] = z_off0
+        #end_points['plane_z_loss_off1'] = z_off1
+    else:
+        end_points['plane_upper_loss'] = torch.tensor(0)
+        end_points['plane_lower_loss'] = torch.tensor(0)
+        end_points['plane_left_loss'] = torch.tensor(0)
+        end_points['plane_right_loss'] = torch.tensor(0)
+        end_points['plane_front_loss'] = torch.tensor(0)
+        end_points['plane_back_loss'] = torch.tensor(0)
+
+    if inputs['opt_proposal']:
+        loss = compute_potential_loss(net, end_points)
+        end_points['proposal_loss'] = loss
+        return loss, end_points
+    
+    if True:#end_points['use_plane']:
+        #loss_plane = plane_upper_loss + plane_lower_loss + plane_left_loss + plane_right_loss + plane_front_loss + plane_back_loss
+        loss_plane = plane_loss# + plane_y_loss + plane_z_loss
+        loss_plane *= 10
+        end_points['loss_plane'] = loss_plane
+
+        #loss_plane_corner = compute_corner_plane_loss(end_points)
+        #end_points['loss_plane_corner'] = loss_plane_corner*50
+        #loss_plane_center = compute_center_plane_loss(end_points)
+        #end_points['loss_plane_center'] = loss_plane_center*50
+
+        #corner_reg = compute_corner_center_loss(end_points)*50
+        #end_points["corner_reg_loss"] = corner_reg
+        loss = loss_plane + (vote_loss_corner1 + vote_loss_corner2)/2.0 + end_points['voxel_loss_center'] + sem_loss# + corner_cueloss + 0*corner_reg + 0*end_points['voxel_loss'] #+ 5*loss_plane_corner + 5*loss_plane_center
+        end_points['loss'] = loss
+        #return loss, end_points
 
     ### Init Proposal loss
     # Vote loss
     vote_loss = compute_vote_loss(end_points)
     end_points['vote_loss'] = vote_loss
+
+    center_cueloss, center_cuelabel, center_cuemask = compute_cueness_loss(end_points, mode='center')
+    #center_cueloss *= 10
+    end_points['vote_loss_center_cue'] = center_cueloss
+    end_points['center_cue'] = corner_cuelabel
 
     # Obj loss
     objectness_loss, objectness_label, objectness_mask, object_assignment = \
@@ -1058,19 +1303,81 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['neg_ratio'] = \
                               torch.sum(objectness_mask.float())/float(total_num_proposal) - end_points['pos_ratio']
 
-    objectness_loss_opt, objectness_label_opt, objectness_mask_opt, objectness_label_match, objectness_mask_match, object_assignment_opt = \
+    objectness_losscorner, objectness_labelcorner, objectness_maskcorner, object_assignmentcorner = \
+                                                                                compute_objectness_loss(end_points, mode='corner')
+    end_points['objectness_loss'+'corner'] = objectness_losscorner
+    end_points['objectness_label'+'corner'] = objectness_labelcorner
+    end_points['objectness_mask'+'corner'] = objectness_maskcorner
+    end_points['object_assignment'+'corner'] = object_assignmentcorner
+    total_num_proposalcorner = objectness_labelcorner.shape[0]*objectness_labelcorner.shape[1]
+    end_points['pos_ratiocorner'] = \
+                              torch.sum(objectness_labelcorner.float().cuda())/float(total_num_proposalcorner)
+    end_points['neg_ratiocorner'] = \
+                              torch.sum(objectness_maskcorner.float())/float(total_num_proposalcorner) - end_points['pos_ratiocorner']
+
+    objectness_lossplane, objectness_labelplane, objectness_maskplane, object_assignmentplane = \
+                                                                                compute_objectness_loss(end_points, mode='plane')
+    end_points['objectness_loss'+'plane'] = objectness_lossplane
+    end_points['objectness_label'+'plane'] = objectness_labelplane
+    end_points['objectness_mask'+'plane'] = objectness_maskplane
+    end_points['object_assignment'+'plane'] = object_assignmentplane
+    total_num_proposalplane = objectness_labelplane.shape[0]*objectness_labelplane.shape[1]
+    end_points['pos_ratioplane'] = \
+                              torch.sum(objectness_labelplane.float().cuda())/float(total_num_proposalplane)
+    end_points['neg_ratioplane'] = \
+                              torch.sum(objectness_maskplane.float())/float(total_num_proposalplane) - end_points['pos_ratioplane']
+
+    objectness_losscomb, objectness_labelcomb, objectness_maskcomb, object_assignmentcomb = \
+                                                                                compute_objectness_loss(end_points, mode='comb')
+    end_points['objectness_loss'+'comb'] = objectness_losscomb
+    end_points['objectness_label'+'comb'] = objectness_labelcomb
+    end_points['objectness_mask'+'comb'] = objectness_maskcomb
+    end_points['object_assignment'+'comb'] = object_assignmentcomb
+    total_num_proposalcomb = objectness_labelcomb.shape[0]*objectness_labelcomb.shape[1]
+    end_points['pos_ratiocomb'] = \
+                              torch.sum(objectness_labelcomb.float().cuda())/float(total_num_proposalcomb)
+    end_points['neg_ratiocomb'] = \
+                              torch.sum(objectness_maskcomb.float())/float(total_num_proposalcomb) - end_points['pos_ratiocomb']
+    '''
+    objectness_lossrefine1, objectness_labelrefine1, objectness_maskrefine1, object_assignmentrefine1 = \
+                                                                                compute_objectness_loss(end_points, mode='refine1')
+    end_points['objectness_loss'+'refine1'] = objectness_lossrefine1
+    end_points['objectness_label'+'refine1'] = objectness_labelrefine1
+    end_points['objectness_mask'+'refine1'] = objectness_maskrefine1
+    end_points['object_assignment'+'refine1'] = object_assignmentrefine1
+    total_num_proposalrefine1 = objectness_labelrefine1.shape[0]*objectness_labelrefine1.shape[1]
+    end_points['pos_ratiorefine1'] = \
+                              torch.sum(objectness_labelrefine1.float().cuda())/float(total_num_proposalrefine1)
+    end_points['neg_ratiorefine1'] = \
+                              torch.sum(objectness_maskrefine1.float())/float(total_num_proposalrefine1) - end_points['pos_ratiorefine1']
+    
+    objectness_lossrefine2, objectness_labelrefine2, objectness_maskrefine2, object_assignmentrefine2 = \
+                                                                                compute_objectness_loss(end_points, mode='refine2')
+    end_points['objectness_loss'+'refine2'] = objectness_lossrefine2
+    end_points['objectness_label'+'refine2'] = objectness_labelrefine2
+    end_points['objectness_mask'+'refine2'] = objectness_maskrefine2
+    end_points['object_assignment'+'refine2'] = object_assignmentrefine2
+    total_num_proposalrefine2 = objectness_labelrefine2.shape[0]*objectness_labelrefine2.shape[1]
+    end_points['pos_ratiorefine2'] = \
+                              torch.sum(objectness_labelrefine2.float().cuda())/float(total_num_proposalrefine2)
+    end_points['neg_ratiorefine2'] = \
+                              torch.sum(objectness_maskrefine2.float())/float(total_num_proposalrefine2) - end_points['pos_ratiorefine2']
+    '''
+    # Obj loss finetune
+    '''
+    objectness_loss_opt, objectness_label_opt, objectness_mask_opt, object_assignment_opt = \
                                                                                 compute_objectness_loss(end_points, mode='opt')
     end_points['objectness_loss'+'opt'] = objectness_loss_opt
     end_points['objectness_label'+'opt'] = objectness_label_opt
     end_points['objectness_mask'+'opt'] = objectness_mask_opt
     end_points['object_assignment'+'opt'] = object_assignment_opt
-    total_num_proposal_opt = objectness_label_match.shape[0]*objectness_label_match.shape[1]
-    end_points['cover_ratio_opt'] = \
-                              torch.sum(objectness_mask_match.float().cuda())/float(total_num_proposal_opt)
+    total_num_proposal_opt = objectness_label_opt.shape[0]*objectness_label_opt.shape[1]
     end_points['pos_ratio_opt'] = \
-                              torch.sum(objectness_label_match.float().cuda())/torch.sum(objectness_mask_match.float().cuda())
-    #end_points['neg_ratio_opt'] = \
-    #                          torch.sum(objectness_mask_opt.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
+                              torch.sum(objectness_label_opt.float().cuda())/float(total_num_proposal_opt)
+    end_points['neg_ratio_opt'] = \
+                              torch.sum(objectness_mask_opt.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
+    #objectness_reg_loss = compute_objectness_reg_loss(end_points)
+    '''
     
     # Box loss and sem cls loss
     center_loss, heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss = \
@@ -1084,7 +1391,53 @@ def get_loss(inputs, end_points, config, net=None):
     box_loss = center_loss + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     end_points['box_loss'] = box_loss
 
+    center_losscorner, heading_cls_losscorner, heading_reg_losscorner, size_cls_losscorner, size_reg_losscorner, sem_cls_losscorner = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='corner')
+    end_points['center_losscorner'] = center_losscorner
+    end_points['heading_cls_losscorner'] = heading_cls_losscorner
+    end_points['heading_reg_losscorner'] = heading_reg_losscorner
+    end_points['size_cls_losscorner'] = size_cls_losscorner
+    end_points['size_reg_losscorner'] = size_reg_losscorner
+    end_points['sem_cls_losscorner'] = sem_cls_losscorner
+    box_losscorner = center_losscorner + 0.1*heading_cls_losscorner + heading_reg_losscorner + 0.1*size_cls_losscorner + size_reg_losscorner
+    end_points['box_losscorner'] = box_losscorner
+
+    center_lossplane, heading_cls_lossplane, heading_reg_lossplane, size_cls_lossplane, size_reg_lossplane, sem_cls_lossplane = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='plane')
+    end_points['center_lossplane'] = center_lossplane
+    end_points['heading_cls_lossplane'] = heading_cls_lossplane
+    end_points['heading_reg_lossplane'] = heading_reg_lossplane
+    end_points['size_cls_lossplane'] = size_cls_lossplane
+    end_points['size_reg_lossplane'] = size_reg_lossplane
+    end_points['sem_cls_lossplane'] = sem_cls_lossplane
+    box_lossplane = center_lossplane + 0.1*heading_cls_lossplane + heading_reg_lossplane + 0.1*size_cls_lossplane + size_reg_lossplane
+    end_points['box_lossplane'] = box_lossplane
+
+    center_losscomb, heading_cls_losscomb, heading_reg_losscomb, size_cls_losscomb, size_reg_losscomb, sem_cls_losscomb = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='comb')
+    end_points['center_losscomb'] = center_losscomb
+    end_points['heading_cls_losscomb'] = heading_cls_losscomb
+    end_points['heading_reg_losscomb'] = heading_reg_losscomb
+    end_points['size_cls_losscomb'] = size_cls_losscomb
+    end_points['size_reg_losscomb'] = size_reg_losscomb
+    end_points['sem_cls_losscomb'] = sem_cls_losscomb
+    box_losscomb = center_losscomb + 0.1*heading_cls_losscomb + heading_reg_losscomb + 0.1*size_cls_losscomb + size_reg_losscomb
+    end_points['box_losscomb'] = box_losscomb
+
+    '''
+    center_lossrefine, heading_cls_lossrefine, heading_reg_lossrefine, size_cls_lossrefine, size_reg_lossrefine, sem_cls_lossrefine = \
+        compute_box_and_sem_cls_loss(end_points, config, mode='refine')
+    end_points['center_lossrefine'] = center_lossrefine
+    end_points['heading_cls_lossrefine'] = heading_cls_lossrefine
+    end_points['heading_reg_lossrefine'] = heading_reg_lossrefine
+    end_points['size_cls_lossrefine'] = size_cls_lossrefine
+    end_points['size_reg_lossrefine'] = size_reg_lossrefine
+    end_points['sem_cls_lossrefine'] = sem_cls_lossrefine
+    box_lossrefine = center_lossrefine + 0.1*heading_cls_lossrefine + heading_reg_lossrefine + 0.1*size_cls_lossrefine + size_reg_lossrefine
+    end_points['box_lossrefine'] = box_lossrefine
+    '''
     # Box loss and sem cls loss finetune
+    '''
     center_loss_opt, heading_cls_loss_opt, heading_reg_loss_opt, size_cls_loss_opt, size_reg_loss_opt, sem_cls_loss_opt = \
         compute_box_and_sem_cls_loss(end_points, config, mode='opt')
     end_points['center_loss_opt'] = center_loss_opt
@@ -1095,9 +1448,9 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['sem_cls_loss_opt'] = sem_cls_loss_opt
     box_loss_opt = center_loss_opt + 0.1*heading_cls_loss_opt + heading_reg_loss_opt + 0.1*size_cls_loss_opt + size_reg_loss_opt
     end_points['box_loss_opt'] = box_loss_opt
-    
+    '''
     # Final loss function
-    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
+    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_losscorner + box_losscorner + 0.1*sem_cls_losscorner + 0.5*objectness_lossplane + box_lossplane + 0.1*sem_cls_lossplane + 0.5*objectness_losscomb + box_losscomb + 0.1*sem_cls_losscomb# + 0.5*2*objectness_lossrefine2# + 0.5*2*objectness_lossrefine2 # + box_lossrefine + 0.1*sem_cls_lossrefine
     '''
     if inputs['epoch'] < EPOCH_THRESH:
         #proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt
@@ -1111,7 +1464,7 @@ def get_loss(inputs, end_points, config, net=None):
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
     '''
     proposalloss *= 10
-    loss = proposalloss + end_points['objcue_loss']
+    loss += proposalloss
     end_points['init_proposal_loss'] = proposalloss
     end_points['loss'] = loss ### Add the initial proposal loss term
         
@@ -1120,6 +1473,18 @@ def get_loss(inputs, end_points, config, net=None):
     obj_pred_val = torch.argmax(end_points['objectness_scores'+'center'], 2) # B,K
     obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float()*objectness_mask)/(torch.sum(objectness_mask)+1e-6)
     end_points['obj_acc_center'] = obj_acc
+
+    obj_pred_val = torch.argmax(end_points['objectness_scores'+'corner'], 2) # B,K
+    obj_acc = torch.sum((obj_pred_val==objectness_labelcorner.long()).float()*objectness_maskcorner)/(torch.sum(objectness_maskcorner)+1e-6)
+    end_points['obj_acc_corner'] = obj_acc
+
+    obj_pred_val = torch.argmax(end_points['objectness_scores'+'plane'], 2) # B,K
+    obj_acc = torch.sum((obj_pred_val==objectness_labelplane.long()).float()*objectness_maskplane)/(torch.sum(objectness_maskplane)+1e-6)
+    end_points['obj_acc_plane'] = obj_acc
+
+    obj_pred_val = torch.argmax(end_points['objectness_scores'+'comb'], 2) # B,K
+    obj_acc = torch.sum((obj_pred_val==objectness_labelcomb.long()).float()*objectness_maskcomb)/(torch.sum(objectness_maskcomb)+1e-6)
+    end_points['obj_acc_comb'] = obj_acc
 
     '''
     obj_pred_val = torch.argmax(end_points['objectness_scores'+'refine'], 2) # B,K

@@ -26,12 +26,12 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     batch_size = net_transposed.shape[0]
     num_proposal = net_transposed.shape[1]
 
-    #if mode == 'opt':
-    #    start = 0
-    #else:
-    start = 2
-    objectness_scores = net_transposed[:,:,0:2]
-    end_points['objectness_scores'+mode] = objectness_scores
+    if mode == 'opt':
+        start = 0
+    else:
+        start = 2
+        objectness_scores = net_transposed[:,:,0:2]
+        end_points['objectness_scores'+mode] = objectness_scores
     
     base_xyz = end_points['aggregated_vote_xyz'+mode] # (batch_size, num_proposal, 3)
     end_points['centerres'+mode] = net_transposed[:,:,start:start+3]
@@ -117,44 +117,26 @@ class ProposalModuleRefine(nn.Module):
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
 
-        self.conv_corner1 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner2 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.bn_corner1 = torch.nn.BatchNorm1d(128)
-        self.bn_corner2 = torch.nn.BatchNorm1d(128)
+        self.conv_match1 = torch.nn.Conv1d(128,64,1)
+        self.conv_match2 = torch.nn.Conv1d(64,2,1)
+        self.bn_match1 = torch.nn.BatchNorm1d(64)
+
+        self.conv_surface1 = torch.nn.Conv1d(128,128,1)
+        self.conv_surface2 = torch.nn.Conv1d(128,128,1)
+        self.bn_surface1 = torch.nn.BatchNorm1d(128)
+        self.bn_surface2 = torch.nn.BatchNorm1d(128)
+
+        self.conv_line1 = torch.nn.Conv1d(128,128,1)
+        self.conv_line2 = torch.nn.Conv1d(128,128,1)
+        self.bn_line1 = torch.nn.BatchNorm1d(128)
+        self.bn_line2 = torch.nn.BatchNorm1d(128)
         
-        self.conv_corner_scale1 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner_scale2 = torch.nn.Conv1d(128,128,1)
-        #self.conv_corner_scale3 = torch.nn.Conv1d(128,num_size_cluster*4,1)
-        self.conv_corner_scale3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.bn_corner_scale1 = torch.nn.BatchNorm1d(128)
-        self.bn_corner_scale2 = torch.nn.BatchNorm1d(128)
-        '''
-        self.conv_corner1 = torch.nn.Conv1d(128*2,128,1)
-        self.conv_corner2 = torch.nn.Conv1d(128,128,1)
-        self.conv_corner3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+self.num_class,1)
-        self.bn_corner1 = torch.nn.BatchNorm1d(128)
-        self.bn_corner2 = torch.nn.BatchNorm1d(128)
-        '''
-        self.conv_plane1 = torch.nn.Conv1d(128,128,1)
-        self.conv_plane2 = torch.nn.Conv1d(128,128,1)
-        self.conv_plane3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.bn_plane1 = torch.nn.BatchNorm1d(128)
-        self.bn_plane2 = torch.nn.BatchNorm1d(128)
-
-        self.conv_comb1 = torch.nn.Conv1d(128,128,1)
-        self.conv_comb2 = torch.nn.Conv1d(128,128,1)
-        self.conv_comb3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.bn_comb1 = torch.nn.BatchNorm1d(128)
-        self.bn_comb2 = torch.nn.BatchNorm1d(128)
-
-        self.conv_match = torch.nn.Conv1d(128,2,1)
-        self.conv_refine1 = torch.nn.Conv1d(128,64,1)
-        self.conv_refine2 = torch.nn.Conv1d(64,32,1)
+        self.conv_refine1 = torch.nn.Conv1d(256,128,1)
+        self.conv_refine2 = torch.nn.Conv1d(128,128,1)
         #self.conv_refine3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.conv_refine3 = torch.nn.Conv1d(32,16,1)
-        self.bn_refine1 = torch.nn.BatchNorm1d(64)
-        self.bn_refine2 = torch.nn.BatchNorm1d(32)
+        self.conv_refine3 = torch.nn.Conv1d(128,3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.bn_refine1 = torch.nn.BatchNorm1d(128)
+        self.bn_refine2 = torch.nn.BatchNorm1d(128)
         
         self.softmax_normal = torch.nn.Softmax(dim=1)
         
@@ -186,6 +168,8 @@ class ProposalModuleRefine(nn.Module):
             exit()
         end_points['aggregated_vote_xyzcenter'] = xyz # (batch_size, num_proposal, 3)
         end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
+        batch_size = xyz.shape[0]
+        object_proposal = xyz.shape[1]
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
         net = F.relu(self.bn2(self.conv2(net))) 
@@ -224,6 +208,7 @@ class ProposalModuleRefine(nn.Module):
         
         ### Extract the object center here
         obj_center = end_points['center'+'center']
+        end_points['aggregated_vote_xyzopt'] = obj_center
         size_residual = end_points['size_residuals'+'center']
         pred_size_class = torch.argmax(end_points['size_scores'+'center'], -1)
         pred_size_residual = torch.gather(end_points['size_residuals'+'center'], 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
@@ -279,16 +264,29 @@ class ProposalModuleRefine(nn.Module):
 
         combine_features = torch.cat((surface_features, line_features), dim=2)
         
+        match_features = F.relu(self.bn_match1(self.conv_match1(combine_features)))
+        match_score = self.conv_match2(match_features)
+        end_points["match_scores"] = match_score.transpose(2,1).contiguous()
+        match_score = match_score.view(batch_size, -1, object_proposal, 12+6).contiguous()
+        _, inds_obj = torch.max(match_score[:,1,:,:], -1)
+        end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
-        import pdb;pdb.set_trace()
-        
-        #end_points['center'+mode]
-        #end_points['center'+'center']
-        
-        
-        ### Create line center here
+        surface_features = F.relu(self.bn_surface1(self.conv_surface1(surface_features)))
+        surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features))).view(batch_size, -1, 6, object_proposal).contiguous()
 
+        line_features = F.relu(self.bn_line1(self.conv_line1(line_features)))
+        line_features = F.relu(self.bn_line2(self.conv_line2(line_features))).view(batch_size, -1, 12, object_proposal).contiguous()
         
+        surface_pool_feature = F.max_pool2d(surface_features, (6,1), stride=1).squeeze(2)
+        line_pool_feature = F.max_pool2d(line_features, (12,1), stride=1).squeeze(2)
+
+        combine_feature = torch.cat((surface_pool_feature, line_pool_feature), dim=1)
+
+        net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature))) 
+        net = F.relu(self.bn_refine2(self.conv_refine2(net))) 
+        net = self.conv_refine3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
+
+        end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='opt')
         return end_points
 
 if __name__=='__main__':
