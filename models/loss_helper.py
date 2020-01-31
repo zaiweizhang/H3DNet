@@ -33,7 +33,7 @@ SIZE_FAR_THRESHOLD = 0.6
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 SEM_CLS_WEIGHTS = [0.4,0.6] # put larger weights on positive objectness
-OBJECTNESS_CLS_WEIGHTS_REFINE = [0.5,0.5] # put larger weights on positive objectness
+OBJECTNESS_CLS_WEIGHTS_REFINE = [0.3,0.7] # put larger weights on positive objectness
 
 EPOCH_THRESH = 400
 
@@ -625,8 +625,11 @@ def compute_objectness_loss(end_points, mode=''):
         pred_obj_surface_center = end_points["surface_center_object"]
         pred_obj_line_center = end_points["line_center_object"]
         
-        dist_surface, _, _, _ = nn_distance(obj_surface_center, pred_surface_center)
-        dist_line, _, _, _ = nn_distance(obj_line_center, pred_line_center)
+        dist_surface, surface_ind, _, _ = nn_distance(obj_surface_center, pred_surface_center)
+        dist_line, line_ind, _, _ = nn_distance(obj_line_center, pred_line_center)
+
+        surface_sel = torch.gather(pred_surface_center, 1, surface_ind.unsqueeze(-1).repeat(1,1,3))
+        line_sel = torch.gather(pred_line_center, 1, line_ind.unsqueeze(-1).repeat(1,1,3))
         
         euclidean_dist_surface = torch.sqrt(dist_surface+1e-6)
         euclidean_dist_line = torch.sqrt(dist_line+1e-6)
@@ -635,8 +638,10 @@ def compute_objectness_loss(end_points, mode=''):
         objectness_label_line = torch.zeros((B,K*12), dtype=torch.long).cuda()
         objectness_mask_line = torch.zeros((B,K*12)).cuda()
 
-        euclidean_dist_obj_surface = torch.sqrt(torch.sum((obj_surface_center - pred_obj_surface_center)**2, dim=-1)+1e-6)
-        euclidean_dist_obj_line = torch.sqrt(torch.sum((obj_line_center - pred_obj_line_center)**2, dim=-1)+1e-6)
+        #euclidean_dist_obj_surface = torch.sqrt(torch.sum((obj_surface_center - pred_obj_surface_center)**2, dim=-1)+1e-6)
+        #euclidean_dist_obj_line = torch.sqrt(torch.sum((obj_line_center - pred_obj_line_center)**2, dim=-1)+1e-6)
+        euclidean_dist_obj_surface = torch.sqrt(torch.sum((pred_obj_surface_center - surface_sel)**2, dim=-1)+1e-6)
+        euclidean_dist_obj_line = torch.sqrt(torch.sum((pred_obj_line_center - line_sel)**2, dim=-1)+1e-6)
 
     objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
     objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
@@ -1138,9 +1143,9 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['cover_ratio_opt'] = \
                               torch.sum(objectness_mask_match.float().cuda())/float(total_num_proposal_opt)
     end_points['pos_ratio_opt'] = \
-                              torch.sum(objectness_label_match.float().cuda())/torch.sum(objectness_mask_match.float().cuda())
-    #end_points['neg_ratio_opt'] = \
-    #                          torch.sum(objectness_mask_opt.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
+                              torch.sum(objectness_label_match.float().cuda())/float(total_num_proposal_opt)#torch.sum(objectness_mask_match.float().cuda())
+    end_points['neg_ratio_opt'] = \
+                              torch.sum(objectness_mask_match.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
     
     # Box loss and sem cls loss
     center_loss, heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss = \

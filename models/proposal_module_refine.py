@@ -133,10 +133,12 @@ class ProposalModuleRefine(nn.Module):
         
         self.conv_refine1 = torch.nn.Conv1d(256,128,1)
         self.conv_refine2 = torch.nn.Conv1d(128,128,1)
+        self.conv_refine3 = torch.nn.Conv1d(128,128,1)
         #self.conv_refine3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.conv_refine3 = torch.nn.Conv1d(128,3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.conv_refine4 = torch.nn.Conv1d(128,3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         self.bn_refine1 = torch.nn.BatchNorm1d(128)
         self.bn_refine2 = torch.nn.BatchNorm1d(128)
+        self.bn_refine3 = torch.nn.BatchNorm1d(128)
         
         self.softmax_normal = torch.nn.Softmax(dim=1)
         
@@ -172,7 +174,8 @@ class ProposalModuleRefine(nn.Module):
         object_proposal = xyz.shape[1]
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
-        net = F.relu(self.bn2(self.conv2(net))) 
+        net = F.relu(self.bn2(self.conv2(net)))
+        original_feature = net
         net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
@@ -282,9 +285,11 @@ class ProposalModuleRefine(nn.Module):
 
         combine_feature = torch.cat((surface_pool_feature, line_pool_feature), dim=1)
 
-        net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature))) 
-        net = F.relu(self.bn_refine2(self.conv_refine2(net))) 
-        net = self.conv_refine3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
+        net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature)))
+        net += original_feature ### Residual feature
+        net = F.relu(self.bn_refine2(self.conv_refine2(net)))
+        net = F.relu(self.bn_refine3(self.conv_refine3(net))) 
+        net = self.conv_refine4(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='opt')
         return end_points
