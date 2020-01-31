@@ -637,18 +637,25 @@ def compute_objectness_loss(end_points, mode=''):
 
         euclidean_dist_obj_surface = torch.sqrt(torch.sum((obj_surface_center - pred_obj_surface_center)**2, dim=-1)+1e-6)
         euclidean_dist_obj_line = torch.sqrt(torch.sum((obj_line_center - pred_obj_line_center)**2, dim=-1)+1e-6)
-        
-    if mode == 'opt':
-        ###Pairwise on Geometry
-        objectness_mask_surface[(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)] = 1
-        objectness_mask_line[(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1
 
-        objectness_label_surface[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)] = 1
-        objectness_label_line[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)] = 1
-    #else:
     objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1    
     objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
     objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+    if mode == 'opt':
+        objectness_label_surface_obj = objectness_label.repeat(1,6)
+        objectness_mask_surface_obj = objectness_mask.repeat(1,6)
+        objectness_label_line_obj = objectness_label.repeat(1,12)
+        objectness_mask_line_obj = objectness_mask.repeat(1,12)
+        
+        #objectness_mask_surface[(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)] = 1
+        objectness_mask_surface = objectness_mask_surface_obj
+        #objectness_mask_line[(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1
+        objectness_mask_line = objectness_mask_line_obj
+        
+        objectness_label_surface[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)*(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)] = 1
+        objectness_label_surface *= objectness_label_surface_obj
+        objectness_label_line[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)*(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1    
+        objectness_label_line *= objectness_label_line_obj
         
     # Compute objectness loss
     if mode == 'opt':
@@ -1184,9 +1191,11 @@ def get_loss(inputs, end_points, config, net=None):
     obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float()*objectness_mask)/(torch.sum(objectness_mask)+1e-6)
     end_points['obj_acc_center'] = obj_acc
 
-    '''
-    obj_pred_val = torch.argmax(end_points['objectness_scores'+'refine'], 2) # B,K
-    obj_acc = torch.sum((obj_pred_val==objectness_labelrefine2.long()).float()*objectness_maskrefine2)/(torch.sum(objectness_maskrefine2)+1e-6)
-    end_points['obj_acc_refine2'] = obj_acc
-    '''
+    obj_pred_val = torch.argmax(end_points['objectness_scores'+'opt'], 2) # B,K
+    obj_acc = torch.sum((obj_pred_val==objectness_label_opt.long()).float()*objectness_mask_opt)/(torch.sum(objectness_mask_opt)+1e-6)
+    end_points['obj_acc_opt'] = obj_acc
+
+    obj_pred_val = torch.argmax(end_points['match_scores'], 2) # B,K
+    obj_acc = torch.sum((obj_pred_val==objectness_label_match.long()).float()*objectness_mask_match)/(torch.sum(objectness_mask_match)+1e-6)
+    end_points['obj_acc_match'] = obj_acc
     return loss, end_points
