@@ -978,7 +978,7 @@ def compute_matching_loss(end_points):
 
     matching_scores_surface = end_points['matching_scores_surface'] # [B, 256*6, 2]
     criterion_surface = nn.CrossEntropyLoss(reduction='none')
-    objectness_loss_surface = criterion(matching_scores_surface.transpose(2,1), objectness_label_surfacel)
+    objectness_loss_surface = criterion_surface(matching_scores_surface.transpose(2,1), objectness_label_surface)
     objectness_loss_surface = torch.sum(objectness_loss_surface * objectness_mask_surface)/(torch.sum(objectness_mask_surface)+1e-6)
 
     # line matching
@@ -998,7 +998,7 @@ def compute_matching_loss(end_points):
 
     matching_scores_line = end_points['matching_scores_line'] # [B, 256*12, 2]
     criterion_line = nn.CrossEntropyLoss(reduction='none')
-    objectness_loss_line = criterion(matching_scores_line.transpose(2,1), objectness_label_line)
+    objectness_loss_line = criterion_line(matching_scores_line.transpose(2,1), objectness_label_line)
     objectness_loss_line = torch.sum(objectness_loss_line * objectness_mask_line)/(torch.sum(objectness_mask_line)+1e-6)
 
     matching_loss = objectness_loss_surface + objectness_loss_line
