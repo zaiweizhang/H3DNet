@@ -270,9 +270,12 @@ class ProposalModuleRefine(nn.Module):
         match_features = F.relu(self.bn_match1(self.conv_match1(combine_features)))
         match_score = self.conv_match2(match_features)
         end_points["match_scores"] = match_score.transpose(2,1).contiguous()
+
         match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
         _, inds_obj = torch.max(match_score[:,1,:,:], -1)
-        end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
+        #_, inds_obj = torch.topk(match_score[:,1,:,:], k=3, dim=-1)
+        #end_points['objectness_scores'+'opt'] = torch.mean(torch.gather(match_score, -1, inds_obj.unsqueeze(1).repeat(1,2,1,1)), dim=-1).transpose(2,1).contiguous()
+        end_points['objectness_scores'+'opt'] = end_points['objectness_scores'+'center']#torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
         surface_features = F.relu(self.bn_surface1(self.conv_surface1(surface_features)))
         surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features))).view(batch_size, -1, 6, object_proposal).contiguous()
