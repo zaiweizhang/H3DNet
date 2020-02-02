@@ -91,7 +91,7 @@ class ProposalModuleRefine(nn.Module):
         ### surface center matching
         self.match_surface_center = PointnetSAModuleMatch( 
                 npoint=self.num_proposal*6,
-                radius=0.3,
+                radius=0.5,
                 nsample=32,
                 mlp=[128, 128, 128, 128],
                 use_xyz=True,
@@ -101,7 +101,7 @@ class ProposalModuleRefine(nn.Module):
         ### line center matching
         self.match_line_center = PointnetSAModuleMatch( 
                 npoint=self.num_proposal*12,
-                radius=0.3,
+                radius=0.5,
                 nsample=32,
                 mlp=[128, 128, 128, 128],
                 use_xyz=True,
@@ -270,7 +270,7 @@ class ProposalModuleRefine(nn.Module):
         match_features = F.relu(self.bn_match1(self.conv_match1(combine_features)))
         match_score = self.conv_match2(match_features)
         end_points["match_scores"] = match_score.transpose(2,1).contiguous()
-        match_score = match_score.view(batch_size, -1, object_proposal, 12+6).contiguous()
+        match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
         _, inds_obj = torch.max(match_score[:,1,:,:], -1)
         end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
