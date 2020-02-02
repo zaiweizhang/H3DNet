@@ -1172,7 +1172,7 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['box_loss_opt'] = box_loss_opt
     
     # Final loss function
-    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
+    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss# + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
     '''
     if inputs['epoch'] < EPOCH_THRESH:
         #proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt

@@ -44,13 +44,12 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     end_points['heading_residuals_normalized'+mode] = heading_residuals_normalized # Bxnum_proposalxnum_heading_bin (should be -1 to 1)
     end_points['heading_residuals'+mode] = heading_residuals_normalized * (np.pi/num_heading_bin) # Bxnum_proposalxnum_heading_bin
 
-    if False:#mode == 'corner':
-        import pdb;pdb.set_trace()
+    if mode == 'opt':
         size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
         end_points['size_scores'+mode] = size_scores
         end_points['size_residuals_normalized'+mode] = size_residuals_normalized
-        end_points['size_residuals'+mode] = size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
+        end_points['size_residuals'+mode] = end_points['size_residuals'+'center'] + size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
     else:
         size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
