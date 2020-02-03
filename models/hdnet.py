@@ -34,11 +34,12 @@ from voting_module_corner import VotingCornerModule
 from voting_module_plane import VotingPlaneModule
 from mean_shift_module import MeanShiftModule
 #from proposal_module_hd import ProposalModule
-from proposal_module_refine import ProposalModuleRefine
+from proposal_module_refine import ProposalModuleRefine, ProposalModuleCenter
 from proposal_module_surface import ProposalModule
 from dump_helper import dump_results
 from loss_helper import get_loss
 from resnet_autoencoder import TwoStreamNetEncoder, TwoStreamNetDecoder, TwoStreamNet
+
 
 class HDNet(nn.Module):
     r"""
@@ -151,6 +152,8 @@ class HDNet(nn.Module):
         
         #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
         #                           mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
+        self.pnet_center = ProposalModuleCenter(num_class, num_heading_bin, num_size_cluster,
+                                   mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
         self.pnet_final = ProposalModuleRefine(num_class, num_heading_bin, num_size_cluster,
                                    mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
         
@@ -244,9 +247,11 @@ class HDNet(nn.Module):
         end_points = self.pnet_z(voted_z, voted_z_feature, end_points, mode='_z')
         end_points = self.pnet_xy(voted_xy, voted_xy_feature, end_points, mode='_xy')
         end_points = self.pnet_line(voted_line, voted_line_feature, end_points, mode='_line')
+        end_points = self.pnet_center(end_points)
 
         end_points = self.pnet_final(end_points)
-        
+
+
         return end_points
     
         # --------- HOUGH VOTING ---------

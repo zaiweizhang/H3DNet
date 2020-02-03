@@ -1020,7 +1020,7 @@ def compute_matching_loss(end_points):
 
 
 
-def get_loss(inputs, end_points, config, net=None):
+def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training, net=None):
     """ Loss functions
 
     Args:
@@ -1172,7 +1172,15 @@ def get_loss(inputs, end_points, config, net=None):
     end_points['box_loss_opt'] = box_loss_opt
     
     # Final loss function
-    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss# + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
+    if is_votenet_training and (not is_refine_training):
+        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
+    elif (not is_votenet_training) and is_refine_training:
+        proposalloss = 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
+    elif is_votenet_training and is_refine_training:
+        proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
+    else:
+        proposalloss = 0
+
     '''
     if inputs['epoch'] < EPOCH_THRESH:
         #proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0*box_loss_opt + 0*0.1*sem_cls_loss_opt

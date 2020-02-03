@@ -52,7 +52,9 @@ parser.add_argument('--num_target', type=int, default=256, help='Proposal number
 parser.add_argument('--vote_factor', type=int, default=1, help='Vote factor [default: 1]')
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
-parser.add_argument('--max_epoch', type=int, default=180, help='Epoch to run [default: 180]')
+parser.add_argument('--max_epoch', type=int, default=360, help='Epoch to run [default: 180]')
+parser.add_argument('--refine_epoch', type=int, default=300, help='Epoch to run [default: 180]')
+parser.add_argument('--votenet_epoch', type=int, default=180, help='Epoch to run [default: 180]')
 parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
@@ -76,6 +78,8 @@ FLAGS = parser.parse_args()
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
 MAX_EPOCH = FLAGS.max_epoch
+VOTENET_EPOCH = FLAGS.votenet_epoch
+REFINE_EPOCH = FLAGS.refine_epoch
 BASE_LEARNING_RATE = FLAGS.learning_rate
 BN_DECAY_STEP = FLAGS.bn_decay_step
 BN_DECAY_RATE = FLAGS.bn_decay_rate
@@ -231,15 +235,16 @@ criterion = MODEL.get_loss
 if FLAGS.opt_proposal:
     net_obj.to(device)
 
-optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
-if FLAGS.opt_proposal:
-    optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
-if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
-    checkpoint = torch.load(CHECKPOINT_PATH)
-    #net.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    start_epoch = checkpoint['epoch']
-    log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
+
+#optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+#if FLAGS.opt_proposal:
+#    optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
+#if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
+#    checkpoint = torch.load(CHECKPOINT_PATH)
+#    #net.load_state_dict(checkpoint['model_state_dict'])
+#    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#    start_epoch = checkpoint['epoch']
+#    log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
 
 # Decay Batchnorm momentum from 0.5 to 0.999
 # note: pytorch's BN momentum (default 0.1)= 1 - tensorflow's BN momentum
@@ -273,14 +278,13 @@ CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
 
 CONFIG_DICT_OPT = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.25, 'use_old_type_nms':False, 'cls_nms':True,
-    'per_class_proposal': True, 'conf_thresh':0.5,
+    'per_class_proposal': True, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
 
 EPOCH_THRESH = 400
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
-
-def train_one_epoch():
+def train_one_epoch(is_votenet_training, is_refine_training, optimizer):
     stat_dict = {} # collect statistics
     if FLAGS.get_data == True:
         net.eval() # set model to training mode
@@ -335,7 +339,7 @@ def train_one_epoch():
         if FLAGS.opt_proposal:
             loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, net=net_obj)
         else:
-            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
+            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, is_votenet_training, is_refine_training)
         if FLAGS.opt_proposal == False and FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
@@ -368,7 +372,7 @@ def train_one_epoch():
                 stat_dict[key] = 0
             #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
 
-def evaluate_one_epoch():
+def evaluate_one_epoch(is_votenet_training, is_refine_training):
     stat_dict = {} # collect statistics
     ap_calculator_center = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
@@ -437,7 +441,7 @@ def evaluate_one_epoch():
             end_points[key] = batch_data_label[key]
         #if FLAGS.get_data == True:
         #    dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TEST_DATASET)
-        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
+        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, is_votenet_training, is_refine_training)
 
         # Accumulate statistics and print out
         for key in end_points:
@@ -559,6 +563,39 @@ def evaluate_one_epoch():
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
 
+
+def set_params_grad(model, requires_grad):
+    # requires_grad: True of False
+    for name, param in model.named_parameters():
+        param.requires_grad = requires_grad
+
+def set_votenet_grad(model, requires_grad):
+    set_params_grad(model.module.backbone_net_center, requires_grad)
+    set_params_grad(model.module.vgen, requires_grad)
+    set_params_grad(model.module.pnet_center, requires_grad)
+
+def set_refine_grad(model, requires_grad):
+    set_params_grad(model.module.backbone_net_sem_z, requires_grad)
+    set_params_grad(model.module.backbone_net_sem_xy, requires_grad)
+    set_params_grad(model.module.backbone_net_line, requires_grad)
+    set_params_grad(model.module.conv_sem_z1, requires_grad)
+    set_params_grad(model.module.bn_sem_z1, requires_grad)
+    set_params_grad(model.module.conv_sem_z2, requires_grad)
+    set_params_grad(model.module.conv_sem_xy1, requires_grad)
+    set_params_grad(model.module.bn_sem_xy1, requires_grad)
+    set_params_grad(model.module.conv_sem_xy2, requires_grad)
+    set_params_grad(model.module.conv_line1, requires_grad)
+    set_params_grad(model.module.bn_line1, requires_grad)
+    set_params_grad(model.module.conv_line2, requires_grad)
+    set_params_grad(model.module.vgen_z, requires_grad)
+    set_params_grad(model.module.vgen_xy, requires_grad)
+    set_params_grad(model.module.vgen_line, requires_grad)
+    set_params_grad(model.module.pnet_z, requires_grad)
+    set_params_grad(model.module.pnet_xy, requires_grad)
+    set_params_grad(model.module.pnet_line, requires_grad)
+    set_params_grad(model.module.pnet_final, requires_grad)
+
+# import pdb; pdb.set_trace()
 def train(start_epoch):
     global EPOCH_CNT
     min_loss = 1e10
@@ -567,7 +604,12 @@ def train(start_epoch):
     if FLAGS.get_data == True or FLAGS.dump_results == True:
         local_epoch = start_epoch + 1
         #import pdb;pdb.set_trace()
-    for epoch in range(start_epoch, local_epoch):
+
+    # set_votenet_grad(net, True)
+    set_refine_grad(net, False)
+    optimizer_votenet = optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+
+    for epoch in range(start_epoch, VOTENET_EPOCH):
         EPOCH_CNT = epoch
         log_string('**** EPOCH %03d ****' % (epoch))
         log_string('Current learning rate: %f'%(get_current_lr(epoch)))
@@ -577,13 +619,73 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         if not FLAGS.dump_results:
-            train_one_epoch()
+            train_one_epoch(is_votenet_training=True, is_refine_training=False, optimizer=optimizer_votenet)
         if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
-            loss = evaluate_one_epoch()
+            loss = evaluate_one_epoch(is_votenet_training=True, is_refine_training=False)
         # Save checkpoint
         if not FLAGS.dump_results:
             save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-                         'optimizer_state_dict': optimizer.state_dict(),
+                         'optimizer_state_dict': optimizer_votenet.state_dict(),
+                         'loss': loss,
+            }
+            try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+                save_dict['model_state_dict'] = net.module.state_dict()
+            except:
+                save_dict['model_state_dict'] = net.state_dict()
+            torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_votenet.tar'))
+
+
+    set_votenet_grad(net, False)
+    set_refine_grad(net, True)
+    optimizer_refine = optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+
+    for epoch in range(VOTENET_EPOCH, REFINE_EPOCH):
+        EPOCH_CNT = epoch
+        log_string('**** EPOCH %03d ****' % (epoch))
+        log_string('Current learning rate: %f'%(get_current_lr(epoch)))
+        log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
+        log_string(str(datetime.now()))
+        # Reset numpy seed.
+        # REF: https://github.com/pytorch/pytorch/issues/5059
+        np.random.seed()
+        if not FLAGS.dump_results:
+            train_one_epoch(is_votenet_training=False, is_refine_training=True, optimizer=optimizer_refine)
+        if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
+            loss = evaluate_one_epoch(is_votenet_training=False, is_refine_training=True)
+        # Save checkpoint
+        if not FLAGS.dump_results:
+            save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+                         'optimizer_state_dict': optimizer_refine.state_dict(),
+                         'loss': loss,
+            }
+            try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+                save_dict['model_state_dict'] = net.module.state_dict()
+            except:
+                save_dict['model_state_dict'] = net.state_dict()
+            torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_refine.tar'))
+
+    set_votenet_grad(net, True)
+    set_refine_grad(net, True)
+    optimizer_full = optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
+
+    for epoch in range(REFINE_EPOCH, local_epoch):
+        EPOCH_CNT = epoch
+        log_string('**** EPOCH %03d ****' % (epoch))
+        log_string('Current learning rate: %f'%(get_current_lr(epoch)))
+        log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
+        log_string(str(datetime.now()))
+        # Reset numpy seed.
+        # REF: https://github.com/pytorch/pytorch/issues/5059
+        np.random.seed()
+        if not FLAGS.dump_results:
+            # import pdb; pdb.set_trace()
+            train_one_epoch(is_votenet_training=True, is_refine_training=True, optimizer=optimizer_full)
+        if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
+            loss = evaluate_one_epoch(is_votenet_training=True, is_refine_training=True)
+        # Save checkpoint
+        if not FLAGS.dump_results:
+            save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+                         'optimizer_state_dict': optimizer_full.state_dict(),
                          'loss': loss,
             }
             try: # with nn.DataParallel() the net is added as a submodule of DataParallel
@@ -591,6 +693,7 @@ def train(start_epoch):
             except:
                 save_dict['model_state_dict'] = net.state_dict()
             torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+
 
 if __name__=='__main__':
     train(start_epoch)

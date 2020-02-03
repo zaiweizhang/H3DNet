@@ -62,6 +62,81 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     return end_points
 
 
+class ProposalModuleCenter(nn.Module):
+    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
+        super().__init__() 
+
+        self.num_class = num_class
+        self.num_heading_bin = num_heading_bin
+        self.num_size_cluster = num_size_cluster
+        self.mean_size_arr = mean_size_arr
+        self.num_proposal = num_proposal
+        self.num_proposal_comb = num_proposal
+        self.sampling = sampling
+        self.seed_feat_dim = seed_feat_dim
+
+        # Vote clustering
+        self.vote_aggregation = PointnetSAModuleVotes( 
+                npoint=self.num_proposal,
+                radius=0.3,
+                nsample=16,
+                mlp=[self.seed_feat_dim, 128, 128, 128],
+                use_xyz=True,
+                normalize_xyz=True
+            )
+       
+        # Object proposal/detection
+        # Objectness scores (2), center residual (3),
+        # heading class+residual (num_heading_bin*2), size class+residual(num_size_cluster*4)
+        self.conv1 = torch.nn.Conv1d(128,128,1)
+        self.conv2 = torch.nn.Conv1d(128,128,1)
+        self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.bn1 = torch.nn.BatchNorm1d(128)
+        self.bn2 = torch.nn.BatchNorm1d(128)
+
+    def forward(self, end_points):
+        """
+        Args:
+            xyz: (B,K,3)
+            features: (B,C,K)
+        Returns:
+            scores: (B,num_proposal,2+3+NH*2+NS*4) 
+        """
+        if self.sampling == 'vote_fps':
+            xyz = end_points['vote_xyz']
+            features = end_points['vote_features']
+            xyz, features, fps_inds = self.vote_aggregation(xyz, features)
+            sample_inds = fps_inds            
+        elif self.sampling == 'seed_fps': 
+            # FPS on seed and choose the votes corresponding to the seeds
+            # This gets us a slightly better coverage of *object* votes than vote_fps (which tends to get more cluster votes)
+            sample_inds = pointnet2_utils.furthest_point_sample(end_points['seed_xyz'], self.num_proposal)
+            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+        elif self.sampling == 'random':
+            # Random sampling from the votes
+            num_seed = end_points['seed_xyz'].shape[1]
+            sample_inds = torch.randint(0, num_seed, (batch_size, self.num_proposal), dtype=torch.int).cuda()
+            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+        else:
+            log_string('Unknown sampling strategy: %s. Exiting!'%(self.sampling))
+            exit()
+        end_points['aggregated_vote_xyzcenter'] = xyz # (batch_size, num_proposal, 3)
+        end_points['aggregated_vote_features'] = features 
+        end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
+        batch_size = xyz.shape[0]
+        object_proposal = xyz.shape[1]
+        # --------- PROPOSAL GENERATION ---------
+        net = F.relu(self.bn1(self.conv1(features))) 
+        net = F.relu(self.bn2(self.conv2(net)))
+        original_feature = net
+        end_points['original_feature'] = original_feature
+        net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
+
+        end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
+
+        return end_points
+
+
 class ProposalModuleRefine(nn.Module):
     def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
         super().__init__() 
@@ -77,16 +152,6 @@ class ProposalModuleRefine(nn.Module):
         self.vote_aggregation_corner = []
         self.vote_aggregation_plane = []
 
-        # Vote clustering
-        self.vote_aggregation = PointnetSAModuleVotes( 
-                npoint=self.num_proposal,
-                radius=0.3,
-                nsample=16,
-                mlp=[self.seed_feat_dim, 128, 128, 128],
-                use_xyz=True,
-                normalize_xyz=True
-            )
-        
         ### surface center matching
         self.match_surface_center = PointnetSAModuleMatch( 
                 npoint=self.num_proposal*6,
@@ -110,12 +175,6 @@ class ProposalModuleRefine(nn.Module):
         # Object proposal/detection
         # Objectness scores (2), center residual (3),
         # heading class+residual (num_heading_bin*2), size class+residual(num_size_cluster*4)
-        self.conv1 = torch.nn.Conv1d(128,128,1)
-        self.conv2 = torch.nn.Conv1d(128,128,1)
-        self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.bn1 = torch.nn.BatchNorm1d(128)
-        self.bn2 = torch.nn.BatchNorm1d(128)
-
         self.conv_match1 = torch.nn.Conv1d(128,64,1)
         self.conv_match2 = torch.nn.Conv1d(64,2,1)
         self.bn_match1 = torch.nn.BatchNorm1d(64)
@@ -149,35 +208,11 @@ class ProposalModuleRefine(nn.Module):
         Returns:
             scores: (B,num_proposal,2+3+NH*2+NS*4) 
         """
-        if self.sampling == 'vote_fps':
-            xyz = end_points['vote_xyz']
-            features = end_points['vote_features']
-            xyz, features, fps_inds = self.vote_aggregation(xyz, features)
-            sample_inds = fps_inds            
-        elif self.sampling == 'seed_fps': 
-            # FPS on seed and choose the votes corresponding to the seeds
-            # This gets us a slightly better coverage of *object* votes than vote_fps (which tends to get more cluster votes)
-            sample_inds = pointnet2_utils.furthest_point_sample(end_points['seed_xyz'], self.num_proposal)
-            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
-        elif self.sampling == 'random':
-            # Random sampling from the votes
-            num_seed = end_points['seed_xyz'].shape[1]
-            sample_inds = torch.randint(0, num_seed, (batch_size, self.num_proposal), dtype=torch.int).cuda()
-            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
-        else:
-            log_string('Unknown sampling strategy: %s. Exiting!'%(self.sampling))
-            exit()
-        end_points['aggregated_vote_xyzcenter'] = xyz # (batch_size, num_proposal, 3)
-        end_points['aggregated_vote_inds'] = sample_inds # (batch_size, num_proposal,) # should be 0,1,2,...,num_proposal
-        batch_size = xyz.shape[0]
-        object_proposal = xyz.shape[1]
-        # --------- PROPOSAL GENERATION ---------
-        net = F.relu(self.bn1(self.conv1(features))) 
-        net = F.relu(self.bn2(self.conv2(net)))
-        original_feature = net
-        net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
-        end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
+        features = end_points['aggregated_vote_features']
+        batch_size = end_points['aggregated_vote_xyzcenter'].shape[0]
+        object_proposal = end_points['aggregated_vote_xyzcenter'].shape[1]
+        original_feature = end_points['original_feature']
 
         ### Create surface center here
         ### Extract surface points and features here
