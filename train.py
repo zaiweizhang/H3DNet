@@ -605,7 +605,7 @@ def set_refine_grad(model, requires_grad):
             param.requires_grad = requires_grad
 
 
-import pdb; pdb.set_trace()
+# import pdb; pdb.set_trace()
 def train(start_epoch):
     global EPOCH_CNT
     min_loss = 1e10
@@ -621,7 +621,7 @@ def train(start_epoch):
         log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
         log_string(str(datetime.now()))
 
-        if start <= epoch < VOTENET_EPOCH:
+        if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
             is_refine_training = False
             set_refine_grad(net, False)
