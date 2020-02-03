@@ -461,8 +461,21 @@ class ScannetDetectionDataset(Dataset):
                 ### Get the centroid here
                 center = meta[:3]
 
+                point_votes[ind, :] = center - x
+                point_votes_mask[ind] = 1.0
+                point_sem_label[ind] = DC.nyu40id2class_sem[meta[-1]]
+                
+                #xtemp = np.stack([x]*len(corners))
+                #dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
+                #sel_corner = np.argmin(dist, 0)
+                #for i in range(len(ind)):
+                #    point_votes_corner[ind[i], :] = corners[sel_corner[i]] - x[i,:]
+                #point_votes_corner3[ind, :] = corners[] - x
+                
                 ### Corners
                 corners, xmin, ymin, zmin, xmax, ymax, zmax = params2bbox(center, meta[3], meta[4], meta[5], meta[6])
+                point_votes_corner1[ind, :] = corners[0] - x
+                point_votes_corner2[ind, :] = corners[-1] - x
                 
                 ###Get bb planes and boundary points
                 plane_lower_temp = np.array([0,0,1,-corners[6,-1]])
@@ -814,22 +827,6 @@ class ScannetDetectionDataset(Dataset):
                     sel_center = sel_global[sel_center]
                     point_center_mask_xy[sel_center] = 1.0
 
-                point_votes[ind, :] = center - x
-                point_votes_mask[ind] = 1.0
-                point_sem_label[ind] = DC.nyu40id2class_sem[meta[-1]]
-                
-                #xtemp = np.stack([x]*len(corners))
-                #dist = np.sum(np.square(xtemp - np.expand_dims(corners, 1)), axis=2)
-                #sel_corner = np.argmin(dist, 0)
-                #for i in range(len(ind)):
-                #    point_votes_corner[ind[i], :] = corners[sel_corner[i]] - x[i,:]
-                point_votes_corner1[ind, :] = corners[0] - x
-                point_votes_corner2[ind, :] = corners[-1] - x
-                #point_votes_corner3[ind, :] = corners[] - x
-                
-                selected_instances.append(i_instance)
-                selected_centers.append(center)
-
                 ### check for planes here
                 '''
                 @Returns:
@@ -1025,8 +1022,8 @@ def viz_votes(pc, point_votes, point_votes_mask, name=''):
     inds = (point_votes_mask==1)
     pc_obj = pc[inds,0:3]
     pc_obj_voted1 = pc_obj + point_votes[inds,0:3]    
-    pc_util.write_ply(pc_obj, 'pc_obj{}.ply'.format(name))
-    pc_util.write_ply(pc_obj_voted1, 'pc_obj_voted1{}.ply'.format(name))
+    pc_util.write_ply(pc_obj, '/scratch/cluster/zaiwei92/scannet_data/pc_obj{}.ply'.format(name))
+    pc_util.write_ply(pc_obj_voted1, '/scratch/cluster/zaiwei92/scannet_data/pc_obj_voted1{}.ply'.format(name))
 
 def viz_plane(point_planes, point_planes_mask, name=''):
     """ Visualize point votes and point votes mask labels
@@ -1134,7 +1131,8 @@ if __name__=='__main__':
     for i_example in range(len(dset.scan_names)):
         example = dset.__getitem__(i_example)
         print (i_example)
-        
+        #pc_util.write_ply(example['point_clouds'], '/scratch/cluster/zaiwei92/scannet_data/pc_{}.ply'.format(i_example))
+        '''
         print (np.unique(example['plane_votes_x'][:,0]))
         print (np.unique(example['plane_votes_x'][:,1]))
         print (np.unique(example['plane_votes_y'][:,0]))
@@ -1151,8 +1149,11 @@ if __name__=='__main__':
         #pc_util.write_ply_label(example['point_clouds'][:,:3], example['point_sem_cls_label'][:,0]+1, 'pc_sem_{}.ply'.format(str(i_example)),  38)
         import pdb;pdb.set_trace()
         continue
+        '''
         viz_votes(example['point_clouds'], example['vote_label'],
                   example['vote_label_mask'],name=i_example)
+        import pdb;pdb.set_trace()
+        continue
         viz_votes(example['point_clouds'], example['vote_label_corner'],
                   example['vote_label_mask'],name=str(i_example)+'corner')
         viz_plane(example['plane_label'],
