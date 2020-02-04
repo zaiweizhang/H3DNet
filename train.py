@@ -52,7 +52,9 @@ parser.add_argument('--num_target', type=int, default=256, help='Proposal number
 parser.add_argument('--vote_factor', type=int, default=1, help='Vote factor [default: 1]')
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
-parser.add_argument('--max_epoch', type=int, default=180, help='Epoch to run [default: 180]')
+parser.add_argument('--max_epoch', type=int, default=360, help='Epoch to run [default: 180]')
+parser.add_argument('--refine_epoch', type=int, default=300, help='Epoch to run [default: 180]')
+parser.add_argument('--votenet_epoch', type=int, default=180, help='Epoch to run [default: 180]')
 parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
@@ -77,6 +79,8 @@ FLAGS = parser.parse_args()
 BATCH_SIZE = FLAGS.batch_size
 NUM_POINT = FLAGS.num_point
 MAX_EPOCH = FLAGS.max_epoch
+VOTENET_EPOCH = FLAGS.votenet_epoch
+REFINE_EPOCH = FLAGS.refine_epoch
 BASE_LEARNING_RATE = FLAGS.learning_rate
 BN_DECAY_STEP = FLAGS.bn_decay_step
 BN_DECAY_RATE = FLAGS.bn_decay_rate
@@ -290,8 +294,7 @@ CONFIG_DICT_OPT_L = {'remove_empty_box':False, 'use_3d_nms':True,
 EPOCH_THRESH = 400
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
-
-def train_one_epoch():
+def train_one_epoch(is_votenet_training, is_refine_training):
     stat_dict = {} # collect statistics
     ### Check variables to be trained
     if FLAGS.freeze_var == True:
@@ -350,7 +353,7 @@ def train_one_epoch():
         if FLAGS.opt_proposal:
             loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, net=net_obj)
         else:
-            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
+            loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, is_votenet_training, is_refine_training)
         if FLAGS.opt_proposal == False and FLAGS.get_data == False:
             loss.backward()
             optimizer.step()
@@ -383,7 +386,7 @@ def train_one_epoch():
                 stat_dict[key] = 0
             #log_string('cen iou: %f cor iou: %f' % (center_iou.cpu().numpy(), corner_iou.cpu().numpy()))
 
-def evaluate_one_epoch():
+def evaluate_one_epoch(is_votenet_training, is_refine_training):
     stat_dict = {} # collect statistics
     ap_calculator_center = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
@@ -456,7 +459,7 @@ def evaluate_one_epoch():
             end_points[key] = batch_data_label[key]
         #if FLAGS.get_data == True:
         #    dump_objcue(inputs, end_points, DUMP_DIR+'/objcue', DATASET_CONFIG, TEST_DATASET)
-        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG)
+        loss, end_points = criterion(inputs, end_points, DATASET_CONFIG, is_votenet_training, is_refine_training)
 
         # Accumulate statistics and print out
         for key in end_points:
@@ -592,6 +595,47 @@ def evaluate_one_epoch():
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
 
+
+def set_params_grad(model, requires_grad):
+    # requires_grad: True of False
+    for name, param in model.named_parameters():
+        param.requires_grad = requires_grad
+
+def set_votenet_grad(model, requires_grad):
+    set_params_grad(model.module.backbone_net_center, requires_grad)
+    set_params_grad(model.module.vgen, requires_grad)
+    # votenet in pnet_final 
+    votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
+    for name, param in net.module.pnet_final.named_parameters():
+        if name.split('.')[0] in votenet_in_pnet_final_name_list:
+            param.requires_grad = requires_grad
+
+def set_refine_grad(model, requires_grad):
+    set_params_grad(model.module.backbone_net_sem_z, requires_grad)
+    set_params_grad(model.module.backbone_net_sem_xy, requires_grad)
+    set_params_grad(model.module.backbone_net_line, requires_grad)
+    set_params_grad(model.module.conv_sem_z1, requires_grad)
+    set_params_grad(model.module.bn_sem_z1, requires_grad)
+    set_params_grad(model.module.conv_sem_z2, requires_grad)
+    set_params_grad(model.module.conv_sem_xy1, requires_grad)
+    set_params_grad(model.module.bn_sem_xy1, requires_grad)
+    set_params_grad(model.module.conv_sem_xy2, requires_grad)
+    set_params_grad(model.module.conv_line1, requires_grad)
+    set_params_grad(model.module.bn_line1, requires_grad)
+    set_params_grad(model.module.conv_line2, requires_grad)
+    set_params_grad(model.module.vgen_z, requires_grad)
+    set_params_grad(model.module.vgen_xy, requires_grad)
+    set_params_grad(model.module.vgen_line, requires_grad)
+    set_params_grad(model.module.pnet_z, requires_grad)
+    set_params_grad(model.module.pnet_xy, requires_grad)
+    set_params_grad(model.module.pnet_line, requires_grad)
+    # refine in pnet_final
+    votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
+    for name, param in net.module.pnet_final.named_parameters():
+        if name.split('.')[0] not in votenet_in_pnet_final_name_list:
+            param.requires_grad = requires_grad
+
+# import pdb; pdb.set_trace()
 def train(start_epoch):
     global EPOCH_CNT
     min_loss = 1e10
@@ -606,13 +650,30 @@ def train(start_epoch):
         log_string('Current learning rate: %f'%(get_current_lr(epoch)))
         log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
         log_string(str(datetime.now()))
+
+        if start_epoch <= epoch < VOTENET_EPOCH:
+            is_votenet_training = True
+            is_refine_training = False
+            set_votenet_grad(net, True)
+            set_refine_grad(net, False)
+        elif VOTENET_EPOCH <= epoch < REFINE_EPOCH:
+            is_votenet_training = False
+            is_refine_training = True
+            set_votenet_grad(net, False)
+            set_refine_grad(net, True)
+        elif REFINE_EPOCH <= epoch < local_epoch:
+            is_votenet_training = True
+            is_refine_training = True
+            set_votenet_grad(net, True)
+            set_refine_grad(net, True)
+
         # Reset numpy seed.
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         if not FLAGS.dump_results:
-            train_one_epoch()
+            train_one_epoch(is_votenet_training, is_refine_training)
         if (EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9 or FLAGS.get_data == True or FLAGS.dump_results == True) and FLAGS.opt_proposal == False: # Eval every 10 epochs
-            loss = evaluate_one_epoch()
+            loss = evaluate_one_epoch(is_votenet_training, is_refine_training)
         # Save checkpoint
         if not FLAGS.dump_results:
             save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
@@ -624,6 +685,7 @@ def train(start_epoch):
             except:
                 save_dict['model_state_dict'] = net.state_dict()
             torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+
 
 if __name__=='__main__':
     train(start_epoch)
