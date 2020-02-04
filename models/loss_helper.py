@@ -1174,15 +1174,12 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
     # Final loss function
     if is_votenet_training and (not is_refine_training):
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss
-        loss = 10 * proposalloss
     elif (not is_votenet_training) and is_refine_training:
         proposalloss = 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
-        loss = 10 * proposalloss + end_points['objcue_loss']
     elif is_votenet_training and is_refine_training:
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + box_loss_opt + 0.1*sem_cls_loss_opt
-        loss = 10 * proposalloss + end_points['objcue_loss']
     else:
-        proposalloss = 0
+        exit(1)
 
     '''
     if inputs['epoch'] < EPOCH_THRESH:
@@ -1196,8 +1193,8 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
         #proposalloss = vote_loss + center_cueloss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + box_loss_opt + 0.1*sem_cls_loss_opt
     '''
-    # proposalloss *= 10
-    # loss = proposalloss + end_points['objcue_loss']
+    proposalloss *= 10
+    loss = proposalloss + end_points['objcue_loss']
     end_points['init_proposal_loss'] = proposalloss
     end_points['loss'] = loss ### Add the initial proposal loss term
         

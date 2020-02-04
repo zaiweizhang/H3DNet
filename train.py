@@ -571,7 +571,6 @@ def set_params_grad(model, requires_grad):
 def set_votenet_grad(model, requires_grad):
     set_params_grad(model.module.backbone_net_center, requires_grad)
     set_params_grad(model.module.vgen, requires_grad)
-    set_params_grad(model.module.pnet_center, requires_grad)
     # votenet in pnet_final 
     votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
     for name, param in net.module.pnet_final.named_parameters():
@@ -597,13 +596,11 @@ def set_refine_grad(model, requires_grad):
     set_params_grad(model.module.pnet_z, requires_grad)
     set_params_grad(model.module.pnet_xy, requires_grad)
     set_params_grad(model.module.pnet_line, requires_grad)
-    set_params_grad(model.module.pnet_final, requires_grad)
     # refine in pnet_final
     votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
     for name, param in net.module.pnet_final.named_parameters():
         if name.split('.')[0] not in votenet_in_pnet_final_name_list:
             param.requires_grad = requires_grad
-
 
 # import pdb; pdb.set_trace()
 def train(start_epoch):
@@ -624,6 +621,7 @@ def train(start_epoch):
         if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
             is_refine_training = False
+            set_votenet_grad(net, True)
             set_refine_grad(net, False)
         elif VOTENET_EPOCH <= epoch < REFINE_EPOCH:
             is_votenet_training = False
