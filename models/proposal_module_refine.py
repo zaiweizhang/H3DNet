@@ -273,7 +273,7 @@ class ProposalModuleRefine(nn.Module):
         _, inds_obj = torch.max(match_score[:,1,:,:], -1)
         #_, inds_obj = torch.topk(match_score[:,1,:,:], k=3, dim=-1)
         #end_points['objectness_scores'+'opt'] = torch.mean(torch.gather(match_score, -1, inds_obj.unsqueeze(1).repeat(1,2,1,1)), dim=-1).transpose(2,1).contiguous()
-        end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
+        end_points['objectness_scores'+'opt'] = end_points['objectness_scores'+'center']#torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
         surface_features = F.relu(self.bn_surface1(self.conv_surface1(surface_features)))
         surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features)))

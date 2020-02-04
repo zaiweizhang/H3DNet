@@ -283,12 +283,12 @@ CONFIG_DICT_L = {'remove_empty_box':False, 'use_3d_nms':True,
 
 CONFIG_DICT_OPT = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.25, 'use_old_type_nms':False, 'cls_nms':True,
-    'per_class_proposal': True, 'conf_thresh':0.05*0.5,
+    'per_class_proposal': True, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
 
 CONFIG_DICT_OPT_L = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.5, 'use_old_type_nms':False, 'cls_nms':True,
-    'per_class_proposal': True, 'conf_thresh':0.05*0.5,
+    'per_class_proposal': True, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
 
 EPOCH_THRESH = 400
@@ -525,11 +525,11 @@ def evaluate_one_epoch(is_votenet_training, is_refine_training):
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_L) 
         ap_calculator_center_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='opt', mrf=True)
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='opt')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT) 
         ap_calculator_opt.step(batch_pred_map_cls, batch_gt_map_cls)
 
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT_L, mode='opt', mrf=True)
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT_L, mode='opt')
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT_L) 
         ap_calculator_opt_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
