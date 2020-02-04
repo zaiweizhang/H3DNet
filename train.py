@@ -215,7 +215,9 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     # 1. filter out unnecessary keys
     model_dict = net.state_dict()
     pretrained_dict = checkpoint['model_state_dict']
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if (('pnet' not in k))}
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if ('pnet_final' not in k) or (k.startswith('pnet_final.vote')) \
+             or (k.startswith('pnet_final.conv1')) or (k.startswith('pnet_final.conv2')) or (k.startswith('pnet_final.conv3')) \
+             or (k.startswith('pnet_final.bn1')) or (k.startswith('pnet_final.bn2'))}
     # 2. overwrite entries in the existing state dict
     model_dict.update(pretrained_dict)
     net.load_state_dict(model_dict)
