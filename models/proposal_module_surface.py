@@ -44,7 +44,7 @@ def decode_scores(net, end_points, num_class, mode=''):
     else:
         sem_cls_scores = net_transposed[:,:,3:] # Bxnum_proposalx10
         end_points['sem_cls_scores'+mode] = sem_cls_scores
-    return end_points
+    return center, end_points
 
 
 class ProposalModule(nn.Module):
@@ -129,11 +129,11 @@ class ProposalModule(nn.Module):
         
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
-        net = F.relu(self.bn2(self.conv2(net))) 
-        net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
+        last_net = F.relu(self.bn2(self.conv2(net))) 
+        net = self.conv3(last_net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
-        end_points = decode_scores(net, end_points, self.num_class, mode=mode)
-        return end_points
+        newcenter, end_points = decode_scores(net, end_points, self.num_class, mode=mode)
+        return newcenter.contiguous(), last_net.contiguous(), end_points
 
 if __name__=='__main__':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))

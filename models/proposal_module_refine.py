@@ -17,8 +17,9 @@ from pointnet2_modules import PointnetSAModuleMatch
 from pointnet2_modules import PointnetSAModulePairwise
 import pointnet2_utils
 
-UPPER_THRESH = 10.0
+UPPER_THRESH = 100.0
 SURFACE_THRESH = 0.5
+MATCH_THRESH = 0.5
 LINE_THRESH = 0.5
 
 def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster, mean_size_arr, mode=''):
@@ -50,6 +51,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
         end_points['size_scores'+mode] = size_scores
         end_points['size_residuals_normalized'+mode] = size_residuals_normalized
         end_points['size_residuals'+mode] = end_points['size_residuals'+'center'] + size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
+        #end_points['size_residuals'+mode] = size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
     else:
         size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
@@ -59,7 +61,10 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
         
     sem_cls_scores = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster*4:] # Bxnum_proposalx10
     end_points['sem_cls_scores'+mode] = sem_cls_scores
-    return end_points
+    if mode == 'center':
+        return end_points['center'+mode], end_points['size_residuals'+mode], end_points['size_scores'+mode], end_points
+    else:
+        return end_points
 
 
 class ProposalModuleRefine(nn.Module):
@@ -141,7 +146,7 @@ class ProposalModuleRefine(nn.Module):
         
         self.softmax_normal = torch.nn.Softmax(dim=1)
         
-    def forward(self, end_points):
+    def forward(self, xyz, features, center_z, z_feature, center_xy, xy_feature, center_line, line_feature, end_points):
         """
         Args:
             xyz: (B,K,3)
@@ -150,8 +155,6 @@ class ProposalModuleRefine(nn.Module):
             scores: (B,num_proposal,2+3+NH*2+NS*4) 
         """
         if self.sampling == 'vote_fps':
-            xyz = end_points['vote_xyz']
-            features = end_points['vote_features']
             xyz, features, fps_inds = self.vote_aggregation(xyz, features)
             sample_inds = fps_inds            
         elif self.sampling == 'seed_fps': 
@@ -174,26 +177,22 @@ class ProposalModuleRefine(nn.Module):
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
         net = F.relu(self.bn2(self.conv2(net)))
-        original_feature = net
+        original_feature = net.contiguous()
         net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
-        end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
+        center_vote, size_vote, sizescore_vote, end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
 
         ### Create surface center here
         ### Extract surface points and features here
         ind_normal_z = self.softmax_normal(end_points["pred_sem_class_z"])
         z_sel = (ind_normal_z[:,1,:] <= SURFACE_THRESH).detach().float()
-        z_center = end_points["center_z"]
-        offset = torch.ones_like(z_center) * UPPER_THRESH
-        z_center += offset*z_sel.unsqueeze(-1)
-        z_feature = end_points['aggregated_feature_z']
+        offset = torch.ones_like(center_z) * UPPER_THRESH
+        z_center = center_z + offset*z_sel.unsqueeze(-1)
 
         ind_normal_xy = self.softmax_normal(end_points["pred_sem_class_xy"])
         xy_sel = (ind_normal_xy[:,1,:] <= SURFACE_THRESH).detach().float()
-        xy_center = end_points["center_xy"]
-        offset = torch.ones_like(xy_center) * UPPER_THRESH
-        xy_center += offset*xy_sel.unsqueeze(-1)
-        xy_feature = end_points['aggregated_feature_xy']
+        offset = torch.ones_like(center_xy) * UPPER_THRESH
+        xy_center = center_xy + offset*xy_sel.unsqueeze(-1)
 
         surface_center_pred = torch.cat((z_center, xy_center), dim=1)
         end_points['surface_center_pred'] = surface_center_pred
@@ -202,18 +201,16 @@ class ProposalModuleRefine(nn.Module):
         ### Extract line points and features here
         ind_normal_line = self.softmax_normal(end_points["pred_sem_class_line"])
         line_sel = (ind_normal_line[:,1,:] <= SURFACE_THRESH).detach().float()
-        line_center = end_points["center_line"]
-        offset = torch.ones_like(line_center) * UPPER_THRESH
-        line_center += offset*line_sel.unsqueeze(-1)
-        line_feature = end_points['aggregated_feature_line']
+        offset = torch.ones_like(center_line) * UPPER_THRESH
+        line_center = center_line + offset*line_sel.unsqueeze(-1)
         end_points['line_center_pred'] = line_center
         
         ### Extract the object center here
-        obj_center = end_points['center'+'center']
+        obj_center = center_vote.contiguous()
         end_points['aggregated_vote_xyzopt'] = obj_center
-        size_residual = end_points['size_residuals'+'center']
-        pred_size_class = torch.argmax(end_points['size_scores'+'center'], -1)
-        pred_size_residual = torch.gather(end_points['size_residuals'+'center'], 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
+        size_residual = size_vote.contiguous()
+        pred_size_class = torch.argmax(sizescore_vote.contiguous(), -1)
+        pred_size_residual = torch.gather(size_vote.contiguous(), 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
         mean_size_class_batched = torch.ones_like(size_residual) * torch.from_numpy(self.mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
         pred_size_avg = torch.gather(mean_size_class_batched, 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
         obj_size = (pred_size_avg.squeeze(2) + pred_size_residual.squeeze(2)).detach()
@@ -231,7 +228,7 @@ class ProposalModuleRefine(nn.Module):
         obj_left_surface_center = obj_center + offset
         obj_right_surface_center = obj_center - offset
         obj_surface_center = torch.cat((obj_upper_surface_center, obj_lower_surface_center, obj_front_surface_center, obj_back_surface_center, obj_left_surface_center, obj_right_surface_center), dim=1)
-        obj_surface_feature = features.repeat(1,1,6)
+        obj_surface_feature = original_feature.repeat(1,1,6)#features.repeat(1,1,6)
         end_points['surface_center_object'] = obj_surface_center
 
         ## Get the object line center here
@@ -257,7 +254,7 @@ class ProposalModuleRefine(nn.Module):
         obj_line_center_11 = obj_center - offset_x - offset_y
 
         obj_line_center = torch.cat((obj_line_center_0, obj_line_center_1, obj_line_center_2, obj_line_center_3, obj_line_center_4, obj_line_center_5, obj_line_center_6, obj_line_center_7, obj_line_center_8, obj_line_center_9, obj_line_center_10, obj_line_center_11), dim=1)
-        obj_line_feature = features.repeat(1,1,12)
+        obj_line_feature = original_feature.repeat(1,1,12)#features.repeat(1,1,12)
         end_points['line_center_object'] = obj_line_center
         
         surface_xyz, surface_features, _ = self.match_surface_center(torch.cat((obj_surface_center, surface_center_pred), dim=1), torch.cat((obj_surface_feature, surface_center_feature_pred), dim=2))
@@ -271,16 +268,29 @@ class ProposalModuleRefine(nn.Module):
         end_points["match_scores"] = match_score.transpose(2,1).contiguous()
 
         match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
+        #match_score = end_points["match_gt"]
+        #match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
         _, inds_obj = torch.max(match_score[:,1,:,:], -1)
         #_, inds_obj = torch.topk(match_score[:,1,:,:], k=3, dim=-1)
         #end_points['objectness_scores'+'opt'] = torch.mean(torch.gather(match_score, -1, inds_obj.unsqueeze(1).repeat(1,2,1,1)), dim=-1).transpose(2,1).contiguous()
-        end_points['objectness_scores'+'opt'] = end_points['objectness_scores'+'center']#torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
+        end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
         surface_features = F.relu(self.bn_surface1(self.conv_surface1(surface_features)))
-        surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features))).view(batch_size, -1, 6, object_proposal).contiguous()
+        surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features)))
 
         line_features = F.relu(self.bn_line1(self.conv_line1(line_features)))
-        line_features = F.relu(self.bn_line2(self.conv_line2(line_features))).view(batch_size, -1, 12, object_proposal).contiguous()
+        line_features = F.relu(self.bn_line2(self.conv_line2(line_features)))
+
+        ### Feature selection based on the matching score
+        '''
+        ind_match_score = self.softmax_normal(end_points["match_scores"].transpose(2,1))
+        match_sel = (ind_match_score[:,1,:] > MATCH_THRESH).detach().float()
+        surface_features *= match_sel[:,:6*object_proposal].unsqueeze(1)
+        line_features *= match_sel[:,6*object_proposal:].unsqueeze(1)
+        '''
+        
+        surface_features = surface_features.view(batch_size, -1, 6, object_proposal).contiguous()
+        line_features = line_features.view(batch_size, -1, 12, object_proposal).contiguous()
         
         surface_pool_feature = F.max_pool2d(surface_features, (6,1), stride=1).squeeze(2)
         line_pool_feature = F.max_pool2d(line_features, (12,1), stride=1).squeeze(2)

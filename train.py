@@ -62,6 +62,7 @@ parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to deca
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
+parser.add_argument('--freeze_var', action='store_true', help='Freeze variables.')
 parser.add_argument('--use_angle', action='store_true', help='Use angle for input in scannet.')
 parser.add_argument('--use_objcue', action='store_true', help='Use support relation in input.')
 parser.add_argument('--opt_proposal', action='store_true', help='Use support relation in input.')
@@ -271,9 +272,19 @@ CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
     'per_class_proposal': True, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
 
+CONFIG_DICT_L = {'remove_empty_box':False, 'use_3d_nms':True,
+    'nms_iou':0.5, 'use_old_type_nms':False, 'cls_nms':True,
+    'per_class_proposal': True, 'conf_thresh':0.05,
+    'dataset_config':DATASET_CONFIG}
+
 CONFIG_DICT_OPT = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.25, 'use_old_type_nms':False, 'cls_nms':True,
-    'per_class_proposal': True, 'conf_thresh':0.5,
+    'per_class_proposal': True, 'conf_thresh':0.05*0.5,
+    'dataset_config':DATASET_CONFIG}
+
+CONFIG_DICT_OPT_L = {'remove_empty_box':False, 'use_3d_nms':True,
+    'nms_iou':0.5, 'use_old_type_nms':False, 'cls_nms':True,
+    'per_class_proposal': True, 'conf_thresh':0.05*0.5,
     'dataset_config':DATASET_CONFIG}
 
 EPOCH_THRESH = 400
@@ -282,6 +293,10 @@ EPOCH_THRESH = 400
 
 def train_one_epoch():
     stat_dict = {} # collect statistics
+    ### Check variables to be trained
+    if FLAGS.freeze_var == True:
+        import pdb;pdb.set_trace()
+        
     if FLAGS.get_data == True:
         net.eval() # set model to training mode
     else:
@@ -372,7 +387,11 @@ def evaluate_one_epoch():
     stat_dict = {} # collect statistics
     ap_calculator_center = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_center_l = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh*2,
+        class2type_map=DATASET_CONFIG.class2type)
     ap_calculator_opt = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        class2type_map=DATASET_CONFIG.class2type)
+    ap_calculator_opt_l = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh*2,
         class2type_map=DATASET_CONFIG.class2type)
     #ap_calculator_plane = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
     #    class2type_map=DATASET_CONFIG.class2type)
@@ -499,9 +518,17 @@ def evaluate_one_epoch():
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
         ap_calculator_center.step(batch_pred_map_cls, batch_gt_map_cls)
 
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='opt')
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_L, mode='center')
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_L) 
+        ap_calculator_center_l.step(batch_pred_map_cls, batch_gt_map_cls)
+        
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='opt', mrf=True)
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT) 
         ap_calculator_opt.step(batch_pred_map_cls, batch_gt_map_cls)
+
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT_L, mode='opt', mrf=True)
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT_L) 
+        ap_calculator_opt_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
         '''
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT, mode='plane')
@@ -542,8 +569,14 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator_center.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
+    metrics_dict = ap_calculator_center_l.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
     log_string('Using opt')
     metrics_dict = ap_calculator_opt.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
+    metrics_dict = ap_calculator_opt_l.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f'%(key, metrics_dict[key]))
     '''

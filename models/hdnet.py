@@ -241,11 +241,11 @@ class HDNet(nn.Module):
         end_points['vote_line'] = voted_line
         end_points['vote_line_feature'] = voted_line_feature
         
-        end_points = self.pnet_z(voted_z, voted_z_feature, end_points, mode='_z')
-        end_points = self.pnet_xy(voted_xy, voted_xy_feature, end_points, mode='_xy')
-        end_points = self.pnet_line(voted_line, voted_line_feature, end_points, mode='_line')
+        center_z, feature_z, end_points = self.pnet_z(voted_z, voted_z_feature, end_points, mode='_z')
+        center_xy, feature_xy, end_points = self.pnet_xy(voted_xy, voted_xy_feature, end_points, mode='_xy')
+        center_line, feature_line, end_points = self.pnet_line(voted_line, voted_line_feature, end_points, mode='_line')
 
-        end_points = self.pnet_final(end_points)
+        end_points = self.pnet_final(proposal_xyz, proposal_features, center_z, feature_z, center_xy, feature_xy, center_line, feature_line, end_points)
         
         return end_points
     
