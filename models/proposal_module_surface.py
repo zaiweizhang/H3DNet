@@ -133,7 +133,7 @@ class ProposalModule(nn.Module):
         net = self.conv3(last_net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         newcenter, end_points = decode_scores(net, end_points, self.num_class, mode=mode)
-        return newcenter.contiguous(), last_net.contiguous(), end_points
+        return newcenter.contiguous(), features.contiguous(), end_points
 
 if __name__=='__main__':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))

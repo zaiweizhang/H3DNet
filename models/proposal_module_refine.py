@@ -28,7 +28,9 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     num_proposal = net_transposed.shape[1]
 
     if mode == 'opt':
-        start = 0
+        start = 2
+        objectness_scores = net_transposed[:,:,0:2]
+        end_points['objectness_scores'+mode] = objectness_scores
     else:
         start = 2
         objectness_scores = net_transposed[:,:,0:2]
@@ -50,8 +52,8 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
         end_points['size_scores'+mode] = size_scores
         end_points['size_residuals_normalized'+mode] = size_residuals_normalized
-        end_points['size_residuals'+mode] = end_points['size_residuals'+'center'] + size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
-        #end_points['size_residuals'+mode] = size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
+        #end_points['size_residuals'+mode] = end_points['size_residuals'+'center'] + size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
+        end_points['size_residuals'+mode] = size_residuals_normalized * torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
     else:
         size_scores = net_transposed[:,:,start+3+num_heading_bin*2:start+3+num_heading_bin*2+num_size_cluster]
         size_residuals_normalized = net_transposed[:,:,start+3+num_heading_bin*2+num_size_cluster:start+3+num_heading_bin*2+num_size_cluster*4].view([batch_size, num_proposal, num_size_cluster, 3]) # Bxnum_proposalxnum_size_clusterx3
@@ -135,11 +137,11 @@ class ProposalModuleRefine(nn.Module):
         self.bn_line1 = torch.nn.BatchNorm1d(128)
         self.bn_line2 = torch.nn.BatchNorm1d(128)
         
-        self.conv_refine1 = torch.nn.Conv1d(256,128,1)
+        self.conv_refine1 = torch.nn.Conv1d(128*2,128,1)
         self.conv_refine2 = torch.nn.Conv1d(128,128,1)
         self.conv_refine3 = torch.nn.Conv1d(128,128,1)
         #self.conv_refine3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
-        self.conv_refine4 = torch.nn.Conv1d(128,3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.conv_refine4 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         self.bn_refine1 = torch.nn.BatchNorm1d(128)
         self.bn_refine2 = torch.nn.BatchNorm1d(128)
         self.bn_refine3 = torch.nn.BatchNorm1d(128)
@@ -177,7 +179,7 @@ class ProposalModuleRefine(nn.Module):
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
         net = F.relu(self.bn2(self.conv2(net)))
-        original_feature = net.contiguous()
+        original_feature = features.contiguous()
         net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         center_vote, size_vote, sizescore_vote, end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr, mode='center')
@@ -207,7 +209,7 @@ class ProposalModuleRefine(nn.Module):
         
         ### Extract the object center here
         obj_center = center_vote.contiguous()
-        end_points['aggregated_vote_xyzopt'] = obj_center
+        end_points['aggregated_vote_xyzopt'] = xyz#obj_center
         size_residual = size_vote.contiguous()
         pred_size_class = torch.argmax(sizescore_vote.contiguous(), -1)
         pred_size_residual = torch.gather(size_vote.contiguous(), 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
@@ -267,13 +269,13 @@ class ProposalModuleRefine(nn.Module):
         match_score = self.conv_match2(match_features)
         end_points["match_scores"] = match_score.transpose(2,1).contiguous()
 
-        match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
+        #match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
         #match_score = end_points["match_gt"]
         #match_score = match_score.view(batch_size, -1, 12+6, object_proposal).transpose(3,2).contiguous()
-        _, inds_obj = torch.max(match_score[:,1,:,:], -1)
+        #_, inds_obj = torch.max(match_score[:,1,:,:], -1)
         #_, inds_obj = torch.topk(match_score[:,1,:,:], k=3, dim=-1)
         #end_points['objectness_scores'+'opt'] = torch.mean(torch.gather(match_score, -1, inds_obj.unsqueeze(1).repeat(1,2,1,1)), dim=-1).transpose(2,1).contiguous()
-        end_points['objectness_scores'+'opt'] = end_points['objectness_scores'+'center']#torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
+        #end_points['objectness_scores'+'opt'] = end_points['objectness_scores'+'center']#torch.gather(match_score, -1, inds_obj.unsqueeze(-1).repeat(1,1,2).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous()
         
         surface_features = F.relu(self.bn_surface1(self.conv_surface1(surface_features)))
         surface_features = F.relu(self.bn_surface2(self.conv_surface2(surface_features)))
@@ -295,6 +297,7 @@ class ProposalModuleRefine(nn.Module):
         surface_pool_feature = F.max_pool2d(surface_features, (6,1), stride=1).squeeze(2)
         line_pool_feature = F.max_pool2d(line_features, (12,1), stride=1).squeeze(2)
 
+        #combine_feature = torch.cat((surface_pool_feature, line_pool_feature, original_feature), dim=1)
         combine_feature = torch.cat((surface_pool_feature, line_pool_feature), dim=1)
 
         net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature)))

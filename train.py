@@ -547,6 +547,7 @@ def evaluate_one_epoch(is_votenet_training, is_refine_training):
         #ap_calculator_refine.step(batch_pred_map_cls, batch_gt_map_cls)
         # Dump evaluation results for visualization
         if FLAGS.dump_results:# and EPOCH_CNT %10 == 0:
+            pass
             #if FLAGS.use_plane:
             #    dump_planes(end_points, DUMP_DIR, DATASET_CONFIG)
             #else:
@@ -554,7 +555,7 @@ def evaluate_one_epoch(is_votenet_training, is_refine_training):
             #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='center')
             #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='corner')
             #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='plane')
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='opt')
+            #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='opt')
             #dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, mode='refine')
             
     # Log statistics
@@ -653,9 +654,10 @@ def train(start_epoch):
 
         if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
-            is_refine_training = False
+            is_refine_training = True#False
             set_votenet_grad(net, True)
-            set_refine_grad(net, False)
+            #set_refine_grad(net, False)
+            set_refine_grad(net, True)
         elif VOTENET_EPOCH <= epoch < REFINE_EPOCH:
             is_votenet_training = False
             is_refine_training = True

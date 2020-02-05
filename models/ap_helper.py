@@ -108,7 +108,8 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
         obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
         obj_prob = (softmax(obj_logits)[:,:,1])*obj_prob_temp # (B,K)
     else:
-        obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
+        obj_logits = end_points['objectness_scores'+'center'].detach().cpu().numpy()
+        #obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()
         obj_prob = softmax(obj_logits)[:,:,1] # (B,K)
     #import pdb;pdb.set_trace()
     if not config_dict['use_3d_nms']:
