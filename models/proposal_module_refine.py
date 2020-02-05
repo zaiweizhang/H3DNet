@@ -210,6 +210,7 @@ class ProposalModuleRefine(nn.Module):
         ### Extract the object center here
         obj_center = center_vote.contiguous()
         end_points['aggregated_vote_xyzopt'] = xyz#obj_center
+        # end_points['aggregated_vote_xyzopt'] = obj_center
         size_residual = size_vote.contiguous()
         pred_size_class = torch.argmax(sizescore_vote.contiguous(), -1)
         pred_size_residual = torch.gather(size_vote.contiguous(), 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))

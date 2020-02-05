@@ -60,8 +60,8 @@ parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial 
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
 parser.add_argument('--bn_decay_step', type=int, default=20, help='Period of BN decay (in epochs) [default: 20]')
 parser.add_argument('--bn_decay_rate', type=float, default=0.5, help='Decay rate for BN decay [default: 0.5]')
-parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to decay the learning rate (in epochs) [default: 80,120,160]')
-parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
+parser.add_argument('--lr_decay_steps', default='80,  120, 160, 180,  210, 230, 250, 270, 300, 330', help='When to decay the learning rate (in epochs) [default: ]')                      
+parser.add_argument('--lr_decay_rates', default='0.1, 0.1, 0.1, 1000, 0.1, 0.1, 0.1, 100, 0.1, 0.1', help='Decay rates for lr decay [default: ]') 
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
 parser.add_argument('--freeze_var', action='store_true', help='Freeze variables.')
@@ -215,7 +215,9 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     # 1. filter out unnecessary keys
     model_dict = net.state_dict()
     pretrained_dict = checkpoint['model_state_dict']
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if (('pnet' not in k))}
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if ('pnet_final' not in k) or (k.startswith('pnet_final.vote')) \
+             or (k.startswith('pnet_final.conv1')) or (k.startswith('pnet_final.conv2')) or (k.startswith('pnet_final.conv3')) \
+             or (k.startswith('pnet_final.bn1')) or (k.startswith('pnet_final.bn2'))}
     # 2. overwrite entries in the existing state dict
     model_dict.update(pretrained_dict)
     net.load_state_dict(model_dict)
@@ -687,6 +689,11 @@ def train(start_epoch):
             except:
                 save_dict['model_state_dict'] = net.state_dict()
             torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+            if epoch == (VOTENET_EPOCH - 1):
+                torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_votenet.tar'))
+            if epoch == (REFINE_EPOCH - 1):
+                torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_refine.tar'))
+            # step2epoch = lambda x: int(x/8) // int(1200 / 8) # dataset samples \approx 1200, b: batch size
 
 
 if __name__=='__main__':
