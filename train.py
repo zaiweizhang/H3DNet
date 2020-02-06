@@ -211,7 +211,6 @@ it = -1 # for the initialize value of `LambdaLR` and `BNMomentumScheduler`
 start_epoch = 0
 if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     checkpoint = torch.load(CHECKPOINT_PATH)
-    '''
     # 1. filter out unnecessary keys
     model_dict = net.state_dict()
     pretrained_dict = checkpoint['model_state_dict']
@@ -221,10 +220,9 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     # 2. overwrite entries in the existing state dict
     model_dict.update(pretrained_dict)
     net.load_state_dict(model_dict)
-    '''
-    net.load_state_dict(checkpoint['model_state_dict'])
+    #net.load_state_dict(checkpoint['model_state_dict'])
     #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    start_epoch = checkpoint['epoch']
+    start_epoch = 0#checkpoint['epoch']
     log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
 
 if torch.cuda.device_count() > 1:
@@ -241,11 +239,21 @@ if FLAGS.opt_proposal:
 optimizer = optim.Adam(net.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
 if FLAGS.opt_proposal:
     optimizer_obj = optim.Adam(net_obj.parameters(), lr=0.001, weight_decay=FLAGS.weight_decay)
-if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
+if False:#CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     checkpoint = torch.load(CHECKPOINT_PATH)
     #net.load_state_dict(checkpoint['model_state_dict'])
+    model_dict = optimizer.state_dict()
+    pretrained_dict = checkpoint['optimizer_state_dict']
+    import pdb;pdb.set_trace()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if ('pnet_final' not in k) or (k.startswith('pnet_final.vote')) \
+             or (k.startswith('pnet_final.conv1')) or (k.startswith('pnet_final.conv2')) or (k.startswith('pnet_final.conv3')) \
+             or (k.startswith('pnet_final.bn1')) or (k.startswith('pnet_final.bn2'))}
+    # 2. overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+    net.load_state_dict(model_dict)
+    
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    start_epoch = checkpoint['epoch']
+    start_epoch = 0#checkpoint['epoch']
     log_string("-> loaded checkpoint %s (epoch: %d)"%(CHECKPOINT_PATH, start_epoch))
 
 # Decay Batchnorm momentum from 0.5 to 0.999
@@ -527,11 +535,11 @@ def evaluate_one_epoch(is_votenet_training, is_refine_training):
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_L) 
         ap_calculator_center_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='opt')
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT, mode='center', mrf=True)
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT) 
         ap_calculator_opt.step(batch_pred_map_cls, batch_gt_map_cls)
 
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT_L, mode='opt')
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_OPT_L, mode='center', mrf=True)
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_OPT_L) 
         ap_calculator_opt_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
@@ -657,7 +665,7 @@ def train(start_epoch):
         if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
             is_refine_training = True#False
-            set_votenet_grad(net, True)
+            set_votenet_grad(net, False)
             #set_refine_grad(net, False)
             set_refine_grad(net, True)
         elif VOTENET_EPOCH <= epoch < REFINE_EPOCH:

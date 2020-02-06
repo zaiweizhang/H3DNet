@@ -58,14 +58,21 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
             where pred_list_i = [(pred_sem_cls, box_params, box_score)_j]
             where j = 0, ..., num of valid detections - 1 from sample input i
     """
-    pred_center = end_points['center'+mode] # B,num_proposal,3
+    if mrf == True:
+        pred_center = end_points['center'+'opt'] # B,num_proposal,3
+    else:
+        pred_center = end_points['center'+mode] # B,num_proposal,3
     pred_heading_class = torch.argmax(end_points['heading_scores'+mode], -1) # B,num_proposal
     pred_heading_residual = torch.gather(end_points['heading_residuals'+mode], 2,
         pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
     pred_heading_residual.squeeze_(2)
     pred_size_class = torch.argmax(end_points['size_scores'+mode], -1) # B,num_proposal
-    pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2,
-        pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
+    if mrf == True:
+        pred_size_residual = torch.gather(end_points['size_residuals'+'opt'], 2,
+                                          pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
+    else:
+        pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2,
+                                          pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
     pred_size_residual.squeeze_(2)
     pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+mode], -1) # B,num_proposal
     sem_cls_probs = softmax(end_points['sem_cls_scores'+mode].detach().cpu().numpy()) # B,num_proposal,10
@@ -102,7 +109,7 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
                 if len(pc_in_box) < 5:
                     nonempty_box_mask[i,j] = 0
         # -------------------------------------
-    if mrf == True:
+    if False:#mrf == True:
         obj_logits_temp = end_points['objectness_scores'+'opt'].detach().cpu().numpy()
         obj_prob_temp = softmax(obj_logits_temp)[:,:,1] # (B,K)
         obj_logits = end_points['objectness_scores'+mode].detach().cpu().numpy()

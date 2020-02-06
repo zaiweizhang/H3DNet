@@ -108,7 +108,9 @@ class ProposalModule(nn.Module):
         """
         if self.sampling == 'vote_fps':
             # Farthest point sampling (FPS) on votes
+            original_feature = features
             xyz, features, fps_inds = self.vote_aggregation(xyz, features)
+            #original_feature = torch.gather(original_features, 2, fps_inds.unsqueeze(1).repeat(1,256,1).detach().long()).contiguous()
             sample_inds = fps_inds
         elif self.sampling == 'seed_fps': 
             # FPS on seed and choose the votes corresponding to the seeds
@@ -133,6 +135,7 @@ class ProposalModule(nn.Module):
         net = self.conv3(last_net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
 
         newcenter, end_points = decode_scores(net, end_points, self.num_class, mode=mode)
+        #return newcenter.contiguous(), original_feature.contiguous(), end_points
         return newcenter.contiguous(), features.contiguous(), end_points
 
 if __name__=='__main__':
