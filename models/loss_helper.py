@@ -586,6 +586,8 @@ def compute_objectness_loss(end_points, mode=''):
     if mode == 'opt':
         obj_center = torch.gather(end_points['center_label'], 1, object_assignment.unsqueeze(-1).repeat(1,1,3))
         gt_size = torch.gather(end_points['size_label'], 1, object_assignment.unsqueeze(-1).repeat(1,1,3)) # select (B,K) from (B,K2)
+        gt_sem = torch.gather(end_points['sem_cls_label'], 1, object_assignment) # select (B,K) from (B,K2)
+        
         offset_x = torch.zeros_like(gt_size)
         offset_y = torch.zeros_like(gt_size)
         offset_z = torch.zeros_like(gt_size)
@@ -624,15 +626,29 @@ def compute_objectness_loss(end_points, mode=''):
 
         pred_obj_surface_center = end_points["surface_center_object"]
         pred_obj_line_center = end_points["line_center_object"]
+
+        surface_sem = torch.argmax(end_points['surface_sem_pred'], dim=2).float()
+        line_sem = torch.argmax(end_points['line_sem_pred'], dim=2).float()
+        
+        #surface_sem_gt = torch.cat((end_points['surface_sem_gt_z'][:,:,-1], end_points['surface_sem_gt_xy'][:,:,-1]), dim=1)
+        #line_sem_gt = end_points['surface_sem_gt_line'][:,:,-1]
         
         dist_surface, surface_ind, _, _ = nn_distance(obj_surface_center, pred_surface_center)
         dist_line, line_ind, _, _ = nn_distance(obj_line_center, pred_line_center)
 
         surface_sel = torch.gather(pred_surface_center, 1, surface_ind.unsqueeze(-1).repeat(1,1,3))
         line_sel = torch.gather(pred_line_center, 1, line_ind.unsqueeze(-1).repeat(1,1,3))
+        surface_sel_sem = torch.gather(surface_sem, 1, surface_ind)
+        line_sel_sem = torch.gather(line_sem, 1, line_ind)
+        #surface_sel_sem_gt = torch.gather(surface_sem_gt, 1, surface_ind)
+        #line_sel_sem_gt = torch.gather(line_sem_gt, 1, line_ind)
+        surface_sel_sem_gt = gt_sem.repeat(1,6).float()
+        line_sel_sem_gt = gt_sem.repeat(1,12).float()
 
         end_points["surface_sel"] = surface_sel
         end_points["line_sel"] = line_sel
+        end_points["surface_sel_sem"] = surface_sel_sem
+        end_points["line_sel_sem"] = line_sel_sem
         
         euclidean_dist_surface = torch.sqrt(dist_surface+1e-6)
         euclidean_dist_line = torch.sqrt(dist_line+1e-6)
@@ -640,6 +656,8 @@ def compute_objectness_loss(end_points, mode=''):
         objectness_mask_surface = torch.zeros((B,K*6)).cuda()
         objectness_label_line = torch.zeros((B,K*12), dtype=torch.long).cuda()
         objectness_mask_line = torch.zeros((B,K*12)).cuda()
+        objectness_label_surface_sem = torch.zeros((B,K*6), dtype=torch.long).cuda()
+        objectness_label_line_sem = torch.zeros((B,K*12), dtype=torch.long).cuda()
 
         #euclidean_dist_obj_surface = torch.sqrt(torch.sum((obj_surface_center - pred_obj_surface_center)**2, dim=-1)+1e-6)
         #euclidean_dist_obj_line = torch.sqrt(torch.sum((obj_line_center - pred_obj_line_center)**2, dim=-1)+1e-6)
@@ -660,18 +678,23 @@ def compute_objectness_loss(end_points, mode=''):
         #objectness_mask_line[(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1
         objectness_mask_line = objectness_mask_line_obj
         objectness_label_surface[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)*(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)] = 1
+        objectness_label_surface_sem[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)*(euclidean_dist_surface<MASK_SURFACE_THRESHOLD)*(surface_sel_sem==surface_sel_sem_gt)] = 1
         #objectness_label_surface[(euclidean_dist_obj_surface<LABEL_SURFACE_THRESHOLD)] = 1
         objectness_label_surface *= objectness_label_surface_obj
+        objectness_label_surface_sem *= objectness_label_surface_obj
         #objectness_label_surface = objectness_label_surface_obj
         objectness_label_line[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)*(euclidean_dist_line<MASK_LINE_THRESHOLD)] = 1
+        objectness_label_line_sem[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)*(euclidean_dist_line<MASK_LINE_THRESHOLD)*(line_sel_sem==line_sel_sem_gt)] = 1
         #objectness_label_line[(euclidean_dist_obj_line<LABEL_LINE_THRESHOLD)] = 1    
         objectness_label_line *= objectness_label_line_obj
+        objectness_label_line_sem *= objectness_label_line_obj
         #objectness_label_line = objectness_label_line_obj
         
     # Compute objectness loss
     if mode == 'opt':
         objectness_scores = end_points["match_scores"]#end_points['objectness_scores'+'refine']
         temp_objectness_label = torch.cat((objectness_label_surface, objectness_label_line), 1)
+        temp_objectness_label_sem = torch.cat((objectness_label_surface_sem, objectness_label_line_sem), 1)
         #end_points['match_gt'] = temp_objectness_label
         temp_objectness_mask = torch.cat((objectness_mask_surface, objectness_mask_line), 1)
         criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS_REFINE).cuda(), reduction='none')
@@ -690,7 +713,7 @@ def compute_objectness_loss(end_points, mode=''):
         #_, inds_obj = torch.topk(match_score[:,1,:,:], k=3, dim=-1)
         #nd_points['objectness_scores'+'opt'] = torch.mean(torch.gather(match_score, -1, inds_obj.unsqueeze(1).repeat(1,2,1,1)), dim=-1).transpose(2,1).contiguous()
         #end_points['objectness_scores'+'opt'] = torch.gather(match_score, -1, inds_obj.unsqueeze(-1).transpose(2,1).unsqueeze(-1)).squeeze(-1).transpose(2,1).contiguous().squeeze(-1).float()
-        return objectness_loss, objectness_label, objectness_mask, temp_objectness_label, temp_objectness_mask, object_assignment
+        return objectness_loss, objectness_label, objectness_mask, temp_objectness_label, temp_objectness_label_sem, temp_objectness_mask, object_assignment
     else:
         objectness_scores = end_points['objectness_scores'+mode]
         criterion = nn.CrossEntropyLoss(torch.Tensor(OBJECTNESS_CLS_WEIGHTS).cuda(), reduction='none')
@@ -854,6 +877,7 @@ def compute_matching_box_loss(end_points, config, mode=''):
     target_point = torch.cat((surface_target, line_target), 1)
 
     objectness_match_label = end_points['objectness_match_label'+'opt'].float()
+    objectness_match_label_sem = end_points['objectness_match_label_sem'+'opt'].float()
 
     gt_center = end_points['center_label'][:,:,0:3]
     dist1, ind1, dist2, _ = nn_distance(pred_center, gt_center) # dist1: BxK, dist2: BxK2
@@ -883,8 +907,23 @@ def compute_matching_box_loss(end_points, config, mode=''):
     size_residual_label_normalized = size_residual_label / mean_size_label # (B,K,3)
     size_residual_normalized_loss = torch.mean(huber_loss(predicted_size_residual_normalized - size_residual_label_normalized, delta=1.0), -1) # (B,K,3) -> (B,K)
     size_residual_normalized_loss = torch.sum(size_residual_normalized_loss*objectness_label)/(torch.sum(objectness_label)+1e-6)
+
+    # 3.4 Semantic cls loss
+    sem_cls_label = torch.gather(end_points['sem_cls_label'], 1, object_assignment) # select (B,K) from (B,K2)
+    criterion_sem_cls = nn.CrossEntropyLoss(reduction='none')
+    sem_cls_loss = criterion_sem_cls(end_points['sem_cls_scores'+mode].transpose(2,1), sem_cls_label) # (B,K)
+    sem_cls_loss = torch.sum(sem_cls_loss * objectness_label)/(torch.sum(objectness_label)+1e-6)
+
+    pred_surface_semantic = end_points['surface_sel_sem'].detach()
+    pred_line_semantic = end_points['line_sel_sem'].detach()
+    pred_semantic = torch.cat((pred_surface_semantic, pred_line_semantic), 1)
+
+    objectness_match_label_sem = end_points['objectness_match_label_sem'+'opt'].float()
+    obj_sem_pred = end_points['sem_cls_scores'+mode].transpose(2,1).repeat(1,1,18)
+    sem_cls_loss_reg = criterion_sem_cls(obj_sem_pred, pred_semantic.long()) # (B,K)
+    sem_cls_loss_reg = torch.sum(sem_cls_loss_reg * objectness_match_label_sem)/(torch.sum(objectness_match_label_sem)+1e-6)
     
-    return center_loss+size_residual_normalized_loss, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss
+    return center_loss+size_residual_normalized_loss+0.1*sem_cls_loss+0.1*sem_cls_loss_reg, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss, sem_cls_loss, sem_cls_loss_reg
 
 def compute_boxsem_loss(end_points, config, mode=''):
     """ Compute 3D bounding box and semantic classification loss.
@@ -1264,13 +1303,14 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
     end_points['neg_ratio'] = \
                               torch.sum(objectness_mask.float())/float(total_num_proposal) - end_points['pos_ratio']
 
-    objectness_loss_opt, objectness_label_opt, objectness_mask_opt, objectness_label_match, objectness_mask_match, object_assignment_opt = \
+    objectness_loss_opt, objectness_label_opt, objectness_mask_opt, objectness_label_match, objectness_label_match_sem, objectness_mask_match, object_assignment_opt = \
                                                                                 compute_objectness_loss(end_points, mode='opt')
     end_points['objectness_loss'+'opt'] = objectness_loss_opt
     end_points['objectness_label'+'opt'] = objectness_label_opt
     end_points['objectness_mask'+'opt'] = objectness_mask_opt
     
     end_points['objectness_match_label'+'opt'] = objectness_label_match
+    end_points['objectness_match_label_sem'+'opt'] = objectness_label_match_sem
     end_points['objectness_match_mask'+'opt'] = objectness_mask_match
     
     end_points['object_assignment'+'opt'] = object_assignment_opt
@@ -1279,9 +1319,18 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
                               torch.sum(objectness_mask_match.float().cuda())/float(total_num_proposal_opt)
     end_points['pos_ratio_opt'] = \
                               torch.sum(objectness_label_match.float().cuda())/float(total_num_proposal_opt)#torch.sum(objectness_mask_match.float().cuda())
+    end_points['pos_obj_ratio_opt'] = \
+                              torch.sum((torch.max(objectness_label_match.float().view(objectness_label.shape[0], 18, objectness_label.shape[1]), dim=1)[0]).cuda())/torch.sum(objectness_label.float().cuda())#torch.sum(objectness_mask_match.float().cuda())
+    
     end_points['neg_ratio_opt'] = \
                               torch.sum(objectness_mask_match.float())/float(total_num_proposal_opt) - end_points['pos_ratio_opt']
+    end_points['sem_ratio_opt'] = \
+                              torch.sum(objectness_label_match_sem.float().cuda())/torch.sum(objectness_label_match.float().cuda())
 
+    assert(np.array_equal(objectness_label.detach().cpu().numpy(), objectness_label_opt.detach().cpu().numpy()))
+    assert(np.array_equal(objectness_mask.detach().cpu().numpy(), objectness_mask_opt.detach().cpu().numpy()))
+    assert(np.array_equal(object_assignment.detach().cpu().numpy(), object_assignment_opt.detach().cpu().numpy()))
+    
     # Box loss and sem cls loss
     center_loss, heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss = \
         compute_box_and_sem_cls_loss(end_points, config, mode='center')
@@ -1307,11 +1356,13 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
     box_loss_opt = center_loss_opt + 0.1*heading_cls_loss_opt + heading_reg_loss_opt + 0.1*size_cls_loss_opt + size_reg_loss_opt
     end_points['box_loss_opt'] = box_loss_opt
     """
-    center_loss_opt, original_center, new_center, original_size = compute_matching_box_loss(end_points, config, mode='opt')
+    center_loss_opt, original_center, new_center, original_size, sem_cls_loss_opt, sem_cls_reg_loss = compute_matching_box_loss(end_points, config, mode='opt')
     end_points['center_loss_opt'] = center_loss_opt
     end_points['center_loss_original'] = original_center
     end_points['size_reg_loss_original'] = original_size
     end_points['center_loss_new'] = new_center
+    end_points['sem_cls_loss_opt'] = sem_cls_loss_opt
+    end_points['sem_cls_reg_loss'] = sem_cls_reg_loss
 
     # Final loss function
     proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + center_loss_opt

@@ -74,8 +74,12 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
         pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2,
                                           pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
     pred_size_residual.squeeze_(2)
-    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+mode], -1) # B,num_proposal
-    sem_cls_probs = softmax(end_points['sem_cls_scores'+mode].detach().cpu().numpy()) # B,num_proposal,10
+    if mrf == True:
+        pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+'opt'], -1) # B,num_proposal
+        sem_cls_probs = softmax(end_points['sem_cls_scores'+'opt'].detach().cpu().numpy()) # B,num_proposal,10
+    else:
+        pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+mode], -1) # B,num_proposal
+        sem_cls_probs = softmax(end_points['sem_cls_scores'+mode].detach().cpu().numpy()) # B,num_proposal,10
     pred_sem_cls_prob = np.max(sem_cls_probs,-1) # B,num_proposal
 
     num_proposal = pred_center.shape[1] 

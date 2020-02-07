@@ -145,9 +145,8 @@ class HDNet(nn.Module):
                                      mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=2)
         self.pnet_xy = ProposalModule(num_class, num_heading_bin, num_size_cluster,
                                      mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1)
-
         self.pnet_line = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-                                     mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1)
+                                        mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1) ### This is a BUG!!! Fix later
         
         #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
         #                           mean_size_arr, num_proposal, sampling, seed_feat_dim=256)

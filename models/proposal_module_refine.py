@@ -195,14 +195,17 @@ class ProposalModuleRefine(nn.Module):
         z_sel = (ind_normal_z[:,1,:] <= SURFACE_THRESH).detach().float()
         offset = torch.ones_like(center_z) * UPPER_THRESH
         z_center = center_z + offset*z_sel.unsqueeze(-1)
+        z_sem = end_points["sem_cls_scores_z"]
 
         ind_normal_xy = self.softmax_normal(end_points["pred_sem_class_xy"])
         xy_sel = (ind_normal_xy[:,1,:] <= SURFACE_THRESH).detach().float()
         offset = torch.ones_like(center_xy) * UPPER_THRESH
         xy_center = center_xy + offset*xy_sel.unsqueeze(-1)
-
+        xy_sem = end_points["sem_cls_scores_xy"]
+        
         surface_center_pred = torch.cat((z_center, xy_center), dim=1)
         end_points['surface_center_pred'] = surface_center_pred
+        end_points['surface_sem_pred'] = torch.cat((z_sem, xy_sem), dim=1)
         surface_center_feature_pred = torch.cat((z_feature, xy_feature), dim=2)
 
         ### Extract line points and features here
@@ -211,6 +214,7 @@ class ProposalModuleRefine(nn.Module):
         offset = torch.ones_like(center_line) * UPPER_THRESH
         line_center = center_line + offset*line_sel.unsqueeze(-1)
         end_points['line_center_pred'] = line_center
+        end_points['line_sem_pred'] = end_points["sem_cls_scores_line"]
         
         ### Extract the object center here
         obj_center = xyz#center_vote.contiguous()
