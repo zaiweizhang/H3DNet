@@ -822,10 +822,14 @@ def compute_matching_box_loss(end_points, config, mode=''):
     batch_size = object_assignment.shape[0]
 
     # Compute center loss
-    pred_center = end_points['center'+mode]
-    obj_center = end_points['center'+mode]
+    #pred_center = end_points['center'+mode]
+    #obj_center = end_points['center'+mode]
+    pred_center = end_points['center'+'center']
+    obj_center = end_points['center'+'center']
     #size_residual = end_points['size_residuals'+'center']
+    #size_residual_normalized = end_points['size_residuals_normalized'+'center']
     size_residual = end_points['size_residuals'+mode]
+    size_residual_normalized = end_points['size_residuals_normalized'+mode]
     pred_size_class = torch.argmax(end_points['size_scores'+'center'].contiguous(), -1).detach()
     pred_size_residual = torch.gather(size_residual, 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3))
     mean_size_class_batched = torch.ones_like(size_residual) * torch.from_numpy(config.mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0)
@@ -900,7 +904,7 @@ def compute_matching_box_loss(end_points, config, mode=''):
     size_label_one_hot = torch.cuda.FloatTensor(batch_size, size_class_label.shape[1], num_size_cluster).zero_()
     size_label_one_hot.scatter_(2, size_class_label.unsqueeze(-1), 1) # src==1 so it's *one-hot* (B,K,num_size_cluster)
     size_label_one_hot_tiled = size_label_one_hot.unsqueeze(-1).repeat(1,1,1,3) # (B,K,num_size_cluster,3)
-    predicted_size_residual_normalized = torch.sum(end_points['size_residuals_normalized'+mode]*size_label_one_hot_tiled, 2) # (B,K,3)
+    predicted_size_residual_normalized = torch.sum(size_residual_normalized*size_label_one_hot_tiled, 2) # (B,K,3)
 
     mean_size_arr_expanded = torch.from_numpy(mean_size_arr.astype(np.float32)).cuda().unsqueeze(0).unsqueeze(0) # (1,1,num_size_cluster,3) 
     mean_size_label = torch.sum(size_label_one_hot_tiled * mean_size_arr_expanded, 2) # (B,K,3)
@@ -923,7 +927,9 @@ def compute_matching_box_loss(end_points, config, mode=''):
     sem_cls_loss_reg = criterion_sem_cls(obj_sem_pred, pred_semantic.long()) # (B,K)
     sem_cls_loss_reg = torch.sum(sem_cls_loss_reg * objectness_match_label_sem)/(torch.sum(objectness_match_label_sem)+1e-6)
     
-    return center_loss+size_residual_normalized_loss+0.1*sem_cls_loss+0.1*sem_cls_loss_reg, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss, sem_cls_loss, sem_cls_loss_reg
+    #return center_loss+size_residual_normalized_loss+0.1*sem_cls_loss+0.1*sem_cls_loss_reg, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss, sem_cls_loss, sem_cls_loss_reg
+    return center_loss+size_residual_normalized_loss, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss, sem_cls_loss, sem_cls_loss_reg
+    #return center_loss, centroid_reg_loss1 + centroid_reg_loss2, centroid_reg_loss3, size_residual_normalized_loss, sem_cls_loss, sem_cls_loss_reg
 
 def compute_boxsem_loss(end_points, config, mode=''):
     """ Compute 3D bounding box and semantic classification loss.
@@ -1365,7 +1371,7 @@ def get_loss(inputs, end_points, config, is_votenet_training, is_refine_training
     end_points['sem_cls_reg_loss'] = sem_cls_reg_loss
 
     # Final loss function
-    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + center_loss_opt
+    proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss# + 0.5*objectness_loss_opt + center_loss_opt
     """
     if is_votenet_training and (not is_refine_training):
         proposalloss = vote_loss + 0.5*objectness_loss + box_loss + 0.1*sem_cls_loss + 0.5*objectness_loss_opt + center_loss_opt

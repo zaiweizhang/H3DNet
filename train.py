@@ -53,8 +53,8 @@ parser.add_argument('--vote_factor', type=int, default=1, help='Vote factor [def
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 parser.add_argument('--max_epoch', type=int, default=360, help='Epoch to run [default: 180]')
-parser.add_argument('--refine_epoch', type=int, default=300, help='Epoch to run [default: 180]')
-parser.add_argument('--votenet_epoch', type=int, default=180, help='Epoch to run [default: 180]')
+parser.add_argument('--refine_epoch', type=int, default=400, help='Epoch to run [default: 180]')
+parser.add_argument('--votenet_epoch', type=int, default=300, help='Epoch to run [default: 180]')
 parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
@@ -316,6 +316,36 @@ def train_one_epoch(is_votenet_training, is_refine_training):
         adjust_learning_rate(optimizer, EPOCH_CNT)
         bnm_scheduler.step() # decay BN momentum
         net.train() # set model to training mode
+
+    ''' The following freezes the parameters of bn
+    '''
+    if not is_votenet_training:
+        # bn in votenet
+        votenet_module_list = [net.module.backbone_net_center, net.module.vgen, net.module.backbone_net_sem_z, 
+            net.module.backbone_net_sem_xy, net.module.backbone_net_line, net.module.bn_agg1, net.module.bn_agg2,
+            net.module.conv_sem_z1, net.module.bn_sem_z1, net.module.conv_sem_z2, net.module.conv_sem_xy1, 
+            net.module.bn_sem_xy1, net.module.conv_sem_xy2, net.module.conv_line1, net.module.bn_line1,
+            net.module.conv_line2, net.module.vgen_z, net.module.vgen_xy, net.module.vgen_line,
+            net.module.pnet_z, net.module.pnet_xy, net.module.pnet_line]
+        for module in votenet_module_list:
+            for m in module.modules():
+                if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
+                    m.eval()
+        # votenet in pnet_final 
+        votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
+        for name, m in net.module.pnet_final.named_modules():
+            if name.split('.')[0] in votenet_in_pnet_final_name_list:
+                if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
+                    m.eval()
+
+    if False:#not is_refine_training:
+        # refine in pnet_final 
+        votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
+        for name, m in net.module.pnet_final.named_modules():
+            if name.split('.')[0] not in votenet_in_pnet_final_name_list:
+                if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
+                    m.eval()
+
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         #for i in range(len(batch_data_label['num_instance'])):
         #    if batch_data_label['num_instance'][i] == 0:
@@ -614,17 +644,10 @@ def set_params_grad(model, requires_grad):
 
 def set_votenet_grad(model, requires_grad):
     set_params_grad(model.module.backbone_net_center, requires_grad)
-    set_params_grad(model.module.vgen, requires_grad)
-    # votenet in pnet_final 
-    votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
-    for name, param in net.module.pnet_final.named_parameters():
-        if name.split('.')[0] in votenet_in_pnet_final_name_list:
-            param.requires_grad = requires_grad
-
-def set_refine_grad(model, requires_grad):
     set_params_grad(model.module.backbone_net_sem_z, requires_grad)
     set_params_grad(model.module.backbone_net_sem_xy, requires_grad)
     set_params_grad(model.module.backbone_net_line, requires_grad)
+    set_params_grad(model.module.vgen, requires_grad)
     set_params_grad(model.module.conv_sem_z1, requires_grad)
     set_params_grad(model.module.bn_sem_z1, requires_grad)
     set_params_grad(model.module.conv_sem_z2, requires_grad)
@@ -640,6 +663,17 @@ def set_refine_grad(model, requires_grad):
     set_params_grad(model.module.pnet_z, requires_grad)
     set_params_grad(model.module.pnet_xy, requires_grad)
     set_params_grad(model.module.pnet_line, requires_grad)
+    set_params_grad(model.module.conv_agg1, requires_grad)
+    set_params_grad(model.module.conv_agg2, requires_grad)
+    set_params_grad(model.module.bn_agg1, requires_grad)
+    set_params_grad(model.module.bn_agg2, requires_grad)
+    # votenet in pnet_final 
+    votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
+    for name, param in net.module.pnet_final.named_parameters():
+        if name.split('.')[0] in votenet_in_pnet_final_name_list:
+            param.requires_grad = requires_grad
+
+def set_refine_grad(model, requires_grad):
     # refine in pnet_final
     votenet_in_pnet_final_name_list = ['vote_aggregation', 'conv1', 'conv2', 'conv3', 'bn1', 'bn2']
     for name, param in net.module.pnet_final.named_parameters():
@@ -662,12 +696,19 @@ def train(start_epoch):
         log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
         log_string(str(datetime.now()))
 
+        is_votenet_training = True
+        is_refine_training = True
+        #set_refine_grad(net, True)
+        set_votenet_grad(net, False)
+        """
         if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
             is_refine_training = True#False
-            set_votenet_grad(net, False)
+            #set_votenet_grad(net, True)
             #set_refine_grad(net, False)
+
             set_refine_grad(net, True)
+            set_votenet_grad(net, False)
         elif VOTENET_EPOCH <= epoch < REFINE_EPOCH:
             is_votenet_training = False
             is_refine_training = True
@@ -678,7 +719,7 @@ def train(start_epoch):
             is_refine_training = True
             set_votenet_grad(net, True)
             set_refine_grad(net, True)
-
+        """
         # Reset numpy seed.
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()

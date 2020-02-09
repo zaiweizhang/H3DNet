@@ -58,7 +58,7 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
             where pred_list_i = [(pred_sem_cls, box_params, box_score)_j]
             where j = 0, ..., num of valid detections - 1 from sample input i
     """
-    if mrf == True:
+    if False:#mrf == True:
         pred_center = end_points['center'+'opt'] # B,num_proposal,3
     else:
         pred_center = end_points['center'+mode] # B,num_proposal,3
@@ -74,7 +74,7 @@ def parse_predictions(end_points, config_dict, mode='opt', mrf=False):
         pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2,
                                           pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
     pred_size_residual.squeeze_(2)
-    if mrf == True:
+    if False:#mrf == True:
         pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+'opt'], -1) # B,num_proposal
         sem_cls_probs = softmax(end_points['sem_cls_scores'+'opt'].detach().cpu().numpy()) # B,num_proposal,10
     else:

@@ -78,9 +78,9 @@ class HDNet(nn.Module):
         #self.backbone_net = Pointnet2BackbonePlane(input_feature_dim=self.input_feature_dim)
         self.backbone_net_center = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         #self.backbone_net_corner = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_sem_z = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_sem_xy = Pointnet2BackboneSurface(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
-        self.backbone_net_line = Pointnet2BackboneLine(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_sem_z = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_sem_xy = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
+        self.backbone_net_line = Pointnet2Backbone(input_feature_dim=self.input_feature_dim - 4) ### Just xyz + height
         #self.backbone_net_plane = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
         #self.backbone_net_voxel = TwoStreamNetEncoder()
         #self.backbone_net_voxel = TwoStreamNet()
@@ -96,6 +96,17 @@ class HDNet(nn.Module):
         #self.conv2 = torch.nn.Conv1d(128,num_class,1)
         #self.conv2 = torch.nn.Conv1d(128,2,1)
 
+        ### Feature aggregation
+        self.conv_agg1 = torch.nn.Conv1d(256*4,256*2,1) ##Pointfeature + input
+        self.bn_agg1 = torch.nn.BatchNorm1d(256*2)
+        #self.conv_agg1 = torch.nn.Conv1d(256*4,256,1) ##Pointfeature + input
+        #self.bn_agg1 = torch.nn.BatchNorm1d(256)
+        self.conv_agg2 = torch.nn.Conv1d(256*2,256,1) ##Pointfeature + input
+        self.bn_agg2 = torch.nn.BatchNorm1d(256)
+        #self.conv_agg3 = torch.nn.Conv1d(256,256,1) ##Pointfeature + input
+        #self.bn_agg3 = torch.nn.BatchNorm1d(256)
+        #self.fc_cat = torch.nn.Linear(256*4, 256)
+        
         ### Semantic Segmentation
         self.conv_sem_z1 = torch.nn.Conv1d(256,128,1) ##Pointfeature + input
         self.bn_sem_z1 = torch.nn.BatchNorm1d(128)
@@ -146,7 +157,7 @@ class HDNet(nn.Module):
         self.pnet_xy = ProposalModule(num_class, num_heading_bin, num_size_cluster,
                                      mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1)
         self.pnet_line = ProposalModule(num_class, num_heading_bin, num_size_cluster,
-                                        mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=1) ### This is a BUG!!! Fix later
+                                        mean_size_arr, num_proposal, sampling, seed_feat_dim=256, numd=0)
         
         #self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
         #                           mean_size_arr, num_proposal, sampling, seed_feat_dim=256)
@@ -203,6 +214,18 @@ class HDNet(nn.Module):
         end_points['seed_inds'+'_line'] = end_points['fp2_inds'+'line']
         end_points['seed_xyz'+'_line'] = xyz_line
         end_points['seed_features'+'_line'] = features_line
+
+        ### Combine the feature here
+        features_combine_discriptor = torch.cat((features, features_sem_z, features_sem_xy, features_line), dim=1)
+        features_combine_discriptor = F.relu(self.bn_agg1(self.conv_agg1(features_combine_discriptor)))
+        features_combine_discriptor = F.relu(self.bn_agg2(self.conv_agg2(features_combine_discriptor)))
+        #features_combine_discriptor = F.relu(self.bn_agg3(self.conv_agg3(features_combine_discriptor)))
+        #features_combine_discriptor = self.fc_cat(features_combine_discriptor.transpose(2,1)).transpose(2,1)
+
+        features = features_combine_discriptor
+        features_sem_z = features_combine_discriptor
+        features_sem_xy = features_combine_discriptor
+        features_line = features_combine_discriptor
         
         net_sem_z = F.relu(self.bn_sem_z1(self.conv_sem_z1(features_sem_z)))
         net_sem_z = self.conv_sem_z2(net_sem_z)

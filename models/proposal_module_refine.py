@@ -139,7 +139,7 @@ class ProposalModuleRefine(nn.Module):
         self.bn_line2 = torch.nn.BatchNorm1d(16)
         
         self.conv_refine1 = torch.nn.Conv1d(192*2,128,1)
-        self.conv_refine2 = torch.nn.Conv1d(128,128,1)
+        self.conv_refine2 = torch.nn.Conv1d(128*2,128,1)
         self.conv_refine3 = torch.nn.Conv1d(128,128,1)
         #self.conv_refine3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
         #self.conv_refine4 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
@@ -218,6 +218,7 @@ class ProposalModuleRefine(nn.Module):
         
         ### Extract the object center here
         obj_center = xyz#center_vote.contiguous()
+        #obj_center = center_vote.contiguous()
         end_points['aggregated_vote_xyzopt'] = xyz#obj_center
         # end_points['aggregated_vote_xyzopt'] = obj_center
         size_residual = size_vote.contiguous()
@@ -313,7 +314,8 @@ class ProposalModuleRefine(nn.Module):
         combine_feature = torch.cat((surface_pool_feature, line_pool_feature), dim=1)
 
         net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature)))
-        net += original_feature_128 ### Residual feature
+        #net += original_feature_128 ### Residual feature
+        net = torch.cat((net, original_feature_128), dim=1)
         net = F.relu(self.bn_refine2(self.conv_refine2(net)))
         net = F.relu(self.bn_refine3(self.conv_refine3(net))) 
         net = self.conv_refine4(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
