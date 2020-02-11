@@ -54,7 +54,7 @@ parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling str
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 parser.add_argument('--max_epoch', type=int, default=360, help='Epoch to run [default: 180]')
 parser.add_argument('--refine_epoch', type=int, default=400, help='Epoch to run [default: 180]')
-parser.add_argument('--votenet_epoch', type=int, default=300, help='Epoch to run [default: 180]')
+parser.add_argument('--votenet_epoch', type=int, default=180, help='Epoch to run [default: 180]')
 parser.add_argument('--batch_size', type=int, default=8, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
@@ -697,9 +697,9 @@ def train(start_epoch):
         log_string(str(datetime.now()))
 
         is_votenet_training = True
-        is_refine_training = True
-        #set_refine_grad(net, True)
-        set_votenet_grad(net, False)
+        is_refine_training = True#False
+        #set_refine_grad(net, False)
+        #set_votenet_grad(net, True)
         """
         if start_epoch <= epoch < VOTENET_EPOCH:
             is_votenet_training = True
