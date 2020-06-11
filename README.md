@@ -4,22 +4,11 @@ Created by <a href="https://sites.google.com/a/utexas.edu/zaiwei-zhang/" target=
 ![overview](overview.jpg)
 
 ## Introduction
-This repository is code release for our paper (arXiv report [here](https://arxiv.org/pdf/1904.09664.pdf)).
+This repository is code release for our paper.
 
 We introduce H3DNet, which takes a colorless 3D point cloud as input and outputs a collection of oriented object bounding boxes (or BB) and their semantic labels. The critical idea of H3DNet is to predict a hybrid set of geometric primitives, i.e., BB centers, BB face centers, and BB edge centers. We show how to convert the predicted geometric primitives into object proposals by defining a distance function between an object and the geometric primitives. This distance function enables continuous optimization of object proposals, and its local minimums provide high-fidelity object proposals. H3DNet then utilizes a matching and refinement module to classify object proposals into detected objects and fine-tune the geometric parameters of the detected objects. The hybrid set of geometric primitives not only provides more accurate signals for object detection than using a single type of geometric primitives, but it also provides an overcomplete set of constraints on the resulting 3D layout. Therefore, H3DNet can tolerate outliers in predicted geometric primitives. Our model achieves state-of-the-art 3D detection results, with only pointclouds input, on two large datasets with real 3D scans, ScanNet and SUN RGB-D.
 
 In this repository, we provide H3DNet model implementation (with Pytorch) as well as data preparation, training and evaluation scripts on SUN RGB-D and ScanNet. Since our model is built on <a href="https://github.com/facebookresearch/votenet" target="_blank">VoteNet</a>, we borrowed a lot of codes from their codebase.
-
-## Citation
-
-If you find our work useful in your research, please consider citing:
-
-    @inproceedings{qi2019deep,
-        author = {Qi, Charles R and Litany, Or and He, Kaiming and Guibas, Leonidas J},
-        title = {Deep Hough Voting for 3D Object Detection in Point Clouds},
-        booktitle = {Proceedings of the IEEE International Conference on Computer Vision},
-        year = {2019}
-    }
 
 ## Installation
 
