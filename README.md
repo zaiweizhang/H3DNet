@@ -63,7 +63,7 @@ To test the trained model with its checkpoint:
 
     python eval.py --data_path path/to/scannet_train_detection_data --dataset scannet --model hdnet --checkpoint_path path/to/checkpoint --dump_dir eval_scannet --num_point 40000 --cluster_sampling seed_fps --use_3d_nms --use_cls_nms --per_class_proposal
 
-Example results will be dumped in the `eval_scannet` folder (or any other folder you specify). In default we evaluate with both AP@0.25 and AP@0.5 with 3D IoU on axis aligned boxes. A properly trained H3DNet should have around 66.5 mAP@0.25 and 48 mAP@0.5.
+Example results will be dumped in the `eval_scannet` folder (or any other folder you specify). In default we evaluate with both AP@0.25 and AP@0.5 with 3D IoU on axis aligned boxes. A properly trained H3DNet should have around 67 mAP@0.25 and 48 mAP@0.5.
 
 ### Visualize predictions and ground truths 
 Visualization codes for ScanNet and SUN RGB-D are in `utils/show_results_scannet.py` and `utils/show_results_sunrgbd.py` saparately. 
