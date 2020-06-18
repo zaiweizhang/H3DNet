@@ -80,4 +80,4 @@ To visualize ground truth scenes and bounding boxes of ScanNet, run
 
 Usages for SUN RGB-D are just replacing scripts with args unchanged. 
 ## License
-H3DNet is relased under the MIT License. See the [LICENSE file](https://arxiv.org/pdf/1904.09664.pdf) for more details.
+H3DNet is relased under the MIT License. See the LICENSE file for more details.
