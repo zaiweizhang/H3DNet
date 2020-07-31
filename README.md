@@ -1,5 +1,5 @@
 # H3DNet: 3D Object Detection Using Hybrid Geometric Primitives
-Created by <a href="https://sites.google.com/a/utexas.edu/zaiwei-zhang/" target="_blank">Zaiwei Zhang</a>, Haitao Yang, <a href="https://sites.google.com/view/bosun/home" target="_blank">Bo Sun</a> and <a href="https://www.cs.utexas.edu/~huangqx/" target="_blank">Qixing Huang</a>.
+Created by <a href="https://sites.google.com/a/utexas.edu/zaiwei-zhang/" target="_blank">Zaiwei Zhang</a>, <a href="https://yanghtr.github.io/" target="_blank">Haitao Yang</a>, <a href="https://sites.google.com/view/bosun/home" target="_blank">Bo Sun</a> and <a href="https://www.cs.utexas.edu/~huangqx/" target="_blank">Qixing Huang</a>.
 
 ![overview](overview.jpg)
 

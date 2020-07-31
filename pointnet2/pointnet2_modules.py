@@ -469,11 +469,11 @@ class PointnetSAModuleMatch(nn.Module):
         
         if not self.ret_unique_cnt:
             grouped_features, grouped_xyz = self.grouper(
-                target_xyz, new_xyz, features
+                target_xyz, new_xyz, features[:,:,self.npoint:].contiguous()
             )  # (B, C, npoint, nsample)
         else:
             grouped_features, grouped_xyz, unique_cnt = self.grouper(
-                target_xyz, new_xyz, features
+                target_xyz, new_xyz, features[:,:,self.npoint:].contiguous()
             )  # (B, C, npoint, nsample), (B,3,npoint,nsample), (B,npoint)
 
         new_features = self.mlp_module(
