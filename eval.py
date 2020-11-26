@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from dump_helper import dump_results
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
@@ -44,6 +46,8 @@ parser.add_argument('--nms_iou', type=float, default=0.25, help='NMS IoU thresho
 parser.add_argument('--conf_thresh', type=float, default=0.05, help='Filter out predictions with obj prob less than it. [default: 0.05]')
 parser.add_argument('--faster_eval', action='store_true', help='Faster evaluation by skippling empty bounding box removal.')
 parser.add_argument('--shuffle_dataset', action='store_true', help='Shuffle the dataset (random order).')
+parser.add_argument('--dump_results', action='store_true', help='Dump results.')
+
 FLAGS = parser.parse_args()
 
 if FLAGS.use_cls_nms:
@@ -56,6 +60,7 @@ DUMP_DIR = FLAGS.dump_dir
 CHECKPOINT_PATH = FLAGS.checkpoint_path
 assert(CHECKPOINT_PATH is not None)
 FLAGS.DUMP_DIR = DUMP_DIR
+
 
 # Prepare DUMP_DIR
 if not os.path.exists(DUMP_DIR): os.mkdir(DUMP_DIR)
@@ -185,6 +190,9 @@ def evaluate_one_epoch():
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT_L, opt_ang=(FLAGS.dataset == 'sunrgbd'))
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT_L) 
         ap_calculator_l.step(batch_pred_map_cls, batch_gt_map_cls)
+        
+        if FLAGS.dump_results:
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET)
 
 
     # Log statistics
