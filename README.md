@@ -42,10 +42,14 @@ For data preparation, we share the same data pre-processing steps with VoteNet. 
 
 To train a new H3DNet model on SUN RGB-D data (depth images):
 
-    python train.py --data_path path/to/sunrgbd --dataset sunrgbd --log_dir log_sunrgbd --num_point 40000 --model hdnet --batch_size 8
+    python train.py --data_path path/to/sunrgbd --dataset sunrgbd --log_dir log_sunrgbd --num_point 40000 --model hdnet --batch_size 16
   
-In order to train in batch_size 8, you will have to use at least 3/4 GPUs. You can use `CUDA_VISIBLE_DEVICES=0,1,2` to specify which GPU(s) to use. Without specifying CUDA devices, the training will use all the available GPUs and train with data parallel.
+In order to train in batch_size 16, you will have to use at least 3/4 GPUs. You can use `CUDA_VISIBLE_DEVICES=0,1,2` to specify which GPU(s) to use. Without specifying CUDA devices, the training will use all the available GPUs and train with data parallel.
 While training you can check the `log_sunrgbd/log_train.txt` file on its progress, or use the TensorBoard to see loss curves.
+
+To run H3DNet with one backbone (less memory):
+
+    python train_1bb.py --data_path path/to/sunrgbd --dataset sunrgbd --log_dir log_sunrgbd --num_point 40000 --model hdnet_1bb --batch_size 16
 
 To test the trained model with its checkpoint:
 
@@ -58,6 +62,12 @@ Example results will be dumped in the `eval_sunrgbd` folder (or any other folder
 To train a H3DNet model on Scannet data (fused scan):
 
     python train.py --data_path path/to/scannet_train_detection_data --dataset scannet --log_dir log_scannet --num_point 40000 --model hdnet --batch_size 8
+
+To run H3DNet with one backbone (less memory):
+
+    python train_1bb.py --data_path path/to/scannet_train_detection_data --dataset scannet --log_dir log_scannet --num_point 40000 --model hdnet_1bb --batch_size 8
+
+It should provide 66 mAP@0.25.
 
 To test the trained model with its checkpoint:
 
