@@ -13,7 +13,7 @@ Point clouds are in **upright_depth coordinate (X right, Y forward, Z upward)**
 Return heading class, heading residual, size class and size residual for 3D bounding boxes.
 Oriented bounding box is parameterized by (cx,cy,cz), (l,w,h), heading_angle and semantic class label.
 (cx,cy,cz) is in upright depth coordinate
-(l,h,w) are *half length* of the object sizes
+(l,h,w) are length of the object sizes
 The heading angle is a rotation rad from +X rotating towards -Y. (+X is 0, -Y is pi/2)
 
 Author: Charles R. Qi
