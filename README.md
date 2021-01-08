@@ -51,6 +51,8 @@ To run H3DNet with one backbone (less memory):
 
     python train_1bb.py --data_path path/to/sunrgbd --dataset sunrgbd --log_dir log_sunrgbd --num_point 40000 --model hdnet_1bb --batch_size 16
 
+You can set the pretrained-weight using --pre_checkpoint_path flag. You can use the pretrained weight in [here](https://github.com/facebookresearch/DepthContrast). Please set the scale of the backbone using --scale accordingly. Use pretrained weight with scale 3 should achieve around 63.5 mAP@0.25.
+
 To test the trained model with its checkpoint:
 
     python eval.py --data_path path/to/sunrgbd --dataset sunrgbd --model hdnet --checkpoint_path path/to/checkpoint --dump_dir eval_sunrgbd --cluster_sampling seed_fps --use_3d_nms --use_cls_nms --per_class_proposal
@@ -67,7 +69,7 @@ To run H3DNet with one backbone (less memory):
 
     python train_1bb.py --data_path path/to/scannet_train_detection_data --dataset scannet --log_dir log_scannet --num_point 40000 --model hdnet_1bb --batch_size 8
 
-It should provide 66 mAP@0.25.
+It should provide 66 mAP@0.25 with training from scratch. You can set the pretrained-weight using --pre_checkpoint_path flag. You can use the pretrained weight in [here](https://github.com/facebookresearch/DepthContrast). Please set the scale of the backbone using --scale accordingly. Use pretrained weight with scale 3 should achieve around 69.0 mAP@0.25.
 
 To test the trained model with its checkpoint:
 
