@@ -16,12 +16,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from dump_helper import dump_results
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from ap_helper import APCalculator, parse_predictions, parse_groundtruths
+from dump_helper import dump_results
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', default='/scratch/cluster/yanght/Dataset/sunrgbd/', help='path to dataset')
@@ -192,7 +192,7 @@ def evaluate_one_epoch():
         ap_calculator_l.step(batch_pred_map_cls, batch_gt_map_cls)
         
         if FLAGS.dump_results:
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET)
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, opt_ang=(FLAGS.dataset == 'sunrgbd'))
 
 
     # Log statistics

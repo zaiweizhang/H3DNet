@@ -56,7 +56,7 @@ def softmax(x):
     probs /= np.sum(probs, axis=len(shape)-1, keepdims=True)
     return probs
 
-def dump_results(end_points, dump_dir, config, dataset, mode='opt'):
+def dump_results(end_points, dump_dir, config, dataset, opt_ang, mode='opt'):
     '''
         similar to dump results
         scan_names: all scan names
@@ -84,14 +84,18 @@ def dump_results(end_points, dump_dir, config, dataset, mode='opt'):
     pred_center = end_points['center'+mode].detach().cpu().numpy() # (B,K,3)
 
     pred_heading_class = torch.argmax(end_points['heading_scores'+'center'], -1) # B,num_proposal
-    pred_heading_residual = torch.gather(end_points['heading_residuals'+'center'], 2, pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
+    if opt_ang:
+        pred_heading_residual = torch.gather(end_points['heading_residuals'+'opt'], 2, pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
+    else:
+        pred_heading_residual = torch.gather(end_points['heading_residuals'+'center'], 2, pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
+
     pred_heading_class = pred_heading_class.detach().cpu().numpy() # B,num_proposal
     pred_heading_residual = pred_heading_residual.squeeze(2).detach().cpu().numpy() # B,num_proposal
     
     pred_size_class = torch.argmax(end_points['size_scores'+'center'], -1) # B,num_proposal
     pred_size_residual = torch.gather(end_points['size_residuals'+mode], 2, pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
     pred_size_residual = pred_size_residual.squeeze(2).detach().cpu().numpy() # B,num_proposal,3
-    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+mode], -1) # B, num_proposal
+    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'+'center'], -1) # B, num_proposal
     pred_sem_cls = pred_sem_cls.detach().cpu().numpy()
 
     pred_mask = end_points['pred_mask'] # B,num_proposal

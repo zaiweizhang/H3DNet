@@ -318,7 +318,7 @@ def evaluate_one_epoch():
         ap_calculator_l.step(batch_pred_map_cls, batch_gt_map_cls)
 
         if FLAGS.dump_results:
-            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET)
+            dump_results(end_points, DUMP_DIR+'/result/', DATASET_CONFIG, TEST_DATASET, opt_ang=(FLAGS.dataset == 'sunrgbd'))
 
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
