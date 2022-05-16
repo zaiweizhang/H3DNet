@@ -83,11 +83,14 @@ def select_bbox(bboxes):
 
 def export_one_scan(scan_name):
     pt = np.load(os.path.join(GT_PATH, scan_name+'_vert.npy'))
-    np.savetxt('tmp.xyz', pt)
+    x = np.array([1 , 1, 1,255, 255, 255]) # Divide each column. x,y,z,r,g,b
+    np.savetxt('tmp.xyz', pt[:,:6]/x)
+    #np.savetxt('tmp.xyz', pt)
     os.system("mv tmp.xyz tmp.xyzrgb")
     pcd  = o3d.io.read_point_cloud('tmp.xyzrgb')
 
-    gt_bbox = np.load(os.path.join(GT_PATH, scan_name+'_all_angle_40cls.npy'))
+    #gt_bbox = np.load(os.path.join(GT_PATH, scan_name+'_all_angle_40cls.npy'))
+    gt_bbox = np.load(os.path.join(GT_PATH, scan_name+'_all_noangle_40cls.npy')) # The file name in scannet_train_detection_data is scene0011_00_all_noangle_40cls.npy
     gt_bbox = select_bbox(np.unique(gt_bbox,axis=0))
     semantic_labels = gt_bbox[:,-1]
     pred_proposals = np.load(os.path.join(PRED_PATH, 'opt'+scan_name+'_nms.npy'))
