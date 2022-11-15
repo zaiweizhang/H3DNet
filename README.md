@@ -36,7 +36,7 @@ Install the following Python dependencies (with `pip install`):
 
 ### Data preparation
 
-For data preparation, we share the same data pre-processing steps with VoteNet. We provide the processed training and testing data for SUN RGB-D [here](https://drive.google.com/file/d/1P_uFQcvVFf10TLxjIaFMfjto8ZHON-N2/view?usp=sharing), and for ScanNet [here](https://drive.google.com/file/d/13-LyTx4ftVreHmzQMM3MQDgAB3jKB7Sg/view?usp=sharing).
+For data preparation, we share the same data pre-processing steps with VoteNet. We provide the processed training and testing data for SUN RGB-D [here](https://drive.google.com/file/d/1uwoi34N43jfreZooG-SuYhG5mdAsSHvK/view?usp=sharing), and for ScanNet [here](https://drive.google.com/file/d/1WtzsQBqU9rxc3tsa4kooRU_DbhRpuIyb/view?usp=sharing).
 
 ### Train and test on SUN RGB-D
 
