@@ -355,7 +355,7 @@ class ProposalModuleRefine(nn.Module):
         combine_feature = torch.cat((surface_pool_feature, line_pool_feature), dim=1)
 
         net = F.relu(self.bn_refine1(self.conv_refine1(combine_feature)))
-        net += original_feature
+        net = net + original_feature
         net = F.relu(self.bn_refine2(self.conv_refine2(net)))
         net = F.relu(self.bn_refine3(self.conv_refine3(net)))
         net = self.conv_refine4(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
